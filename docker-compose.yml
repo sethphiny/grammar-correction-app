@@ -5,41 +5,53 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.backend
-    container_name: grammar-correction-backend
     ports:
       - "8000:8000"
     environment:
-      - PYTHONPATH=/app
-      - PYTHONUNBUFFERED=1
+      - LANGUAGETOOL_URL=http://languagetool:8081
+      - MAX_FILE_SIZE=10485760
+      - PROCESSING_TIMEOUT=300
+      - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
     volumes:
       - ./backend:/app
-      - /tmp/grammar-uploads:/tmp/uploads
-      - /tmp/grammar-reports:/tmp/reports
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      - /app/venv
+    depends_on:
+      - languagetool
+    networks:
+      - app-network
     restart: unless-stopped
 
   frontend:
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend
-    container_name: grammar-correction-frontend
     ports:
       - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
       - backend
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  languagetool:
+    image: silviof/docker-languagetool:latest
+    ports:
+      - "8081:8081"
+    environment:
+      - LANGUAGETOOL_OPTS=-Xmx2g
+    networks:
+      - app-network
     restart: unless-stopped
 
 networks:
-  default:
-    name: grammar-correction-network
+  app-network:
+    driver: bridge
+
+volumes:
+  backend_venv:
+  frontend_node_modules:

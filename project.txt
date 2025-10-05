@@ -1,0 +1,201 @@
+{
+  "task": "build_grammar_correction_report_web_app",
+  "requirements": {
+    "description": "A Dockerized web application that allows users to upload a Word document (.doc or .docx), checks it line by line and sentence by sentence, and generates a correction report in a strict format with a final summary at the end. If a sentence spans multiple lines, the report should reference the full line range (e.g., Line 4–5). Sentences inside each line should also be numbered for precision (e.g., Line 12, Sentence 2). The summary should list each category of issue and include the count of occurrences.",
+    "features": [
+      "Web-based user interface (React + TailwindCSS)",
+      "File upload restricted to .doc or .docx",
+      "User sets desired output file name",
+      "User chooses output format: DOCX or PDF",
+      "Show progress bar while processing",
+      "Check text sentence by sentence inside each line",
+      "If a sentence spans multiple lines, report using the line range (e.g., Line 4–5)",
+      "Within each line, show which sentence number has the issue (e.g., Line 12, Sentence 2)",
+      "Only include lines with detected issues in the report",
+      "For each issue: show line number or line range, sentence number, original text, problem explanation, and fix suggestion",
+      "Add one final summary section at the end listing all categories of fixes found with counts",
+      "Do not alter the original document",
+      "Preview mode to review corrections before download",
+      "Include original document alongside report in download",
+      "Accessibility compliance (WCAG 2.1 AA)"
+    ]
+  },
+  "technical_requirements": {
+    "file_size_limit": "10MB",
+    "processing_timeout": "300 seconds",
+    "concurrent_users": "up to 5 simultaneous uploads",
+    "error_recovery": "graceful degradation when API is unavailable"
+  },
+  "security": {
+    "file_handling": "temporary files deleted after processing",
+    "data_retention": "no document content stored permanently",
+    "api_security": "validate file types server-side",
+    "user_data": "no personal information collection"
+  },
+  "input": {
+    "file_source": "web_upload",
+    "file_select_prompt": "Upload a Word document (.doc or .docx) for analysis.",
+    "accepted_types": [".doc", ".docx"],
+    "language": "en-US"
+  },
+  "processing": {
+    "unit": "line_with_sentence_check",
+    "rules": [
+      "Extract all lines from the document",
+      "Split each line into sentences for analysis",
+      "Assign sentence numbers sequentially within each line",
+      "If a sentence extends across multiple lines, record the full line range and sentence number",
+      "Skip lines without issues",
+      "Format output using strict bullet-point style",
+      "Keep a tally of issues by category to display in the final summary"
+    ],
+    "sentence_detection": {
+      "rules": [
+        "Split on periods, exclamation marks, and question marks",
+        "Account for abbreviations (Mr., Dr., etc.)",
+        "Handle decimal numbers and version numbers",
+        "Preserve formatting and special characters"
+      ]
+    },
+    "error_handling": {
+      "document_parsing": "graceful failure with user-friendly error messages",
+      "corrupted_files": "detect and reject password-protected or corrupted documents",
+      "api_timeouts": "implement retry logic with exponential backoff",
+      "network_issues": "fallback to local grammar checking when API unavailable"
+    },
+    "performance": {
+      "language_tool": {
+        "batch_processing": "process up to 100 sentences per API call",
+        "rate_limiting": "max 5 requests per second",
+        "fallback": "local grammar checking if API unavailable"
+      }
+    },
+    "report_format": {
+      "location": "Line {line_number_or_range}, Sentence {sentence_number}",
+      "original": "“{original_text}”",
+      "problem": "• Problem: {explanation}",
+      "fix": "• Fix: {corrected_text}"
+    },
+    "report_formatting": {
+      "font": "Arial, 11pt",
+      "line_spacing": "1.15",
+      "margins": "1 inch all sides",
+      "page_breaks": "after summary section",
+      "headers": "include document title and timestamp"
+    },
+    "summary": {
+      "title": "✅ Summary",
+      "placement": "end_of_report",
+      "content": [
+        "• Verb tense consistency issues: {count}",
+        "• Awkward phrasing: {count}",
+        "• Redundancy: {count}",
+        "• Grammar/punctuation (commas, subject–verb agreement, quotation marks): {count}"
+      ]
+    }
+  },
+  "output": {
+    "format_prompt": "Choose output format: DOCX or PDF",
+    "options": ["docx", "pdf"],
+    "file_naming": "{user_filename}.{ext}"
+  },
+  "tools": {
+    "frontend": [
+      "React",
+      "TailwindCSS"
+    ],
+    "backend": [
+      "FastAPI (Python)"
+    ],
+    "text_extraction": [
+      "python-docx (for .docx parsing)",
+      "textract or antiword (for .doc parsing)"
+    ],
+    "grammar_checking": [
+      "language_tool_python (uses LanguageTool API — free public server or local install)"
+    ],
+    "report_generation": [
+      "python-docx (for DOCX output)",
+      "reportlab (for PDF output)"
+    ]
+  },
+  "dependencies": {
+    "python": ">=3.9",
+    "backend_libraries": [
+      "fastapi",
+      "uvicorn",
+      "python-docx",
+      "reportlab",
+      "language-tool-python",
+      "textract (optional for .doc support)"
+    ],
+    "frontend_libraries": [
+      "react",
+      "react-dom",
+      "tailwindcss"
+    ]
+  },
+  "deployment": {
+    "docker": {
+      "backend": {
+        "base_image": "python:3.11-slim",
+        "port": 8000
+      },
+      "frontend": {
+        "base_image": "node:20-alpine",
+        "port": 3000,
+        "build": "npm run build",
+        "serve": "nginx"
+      },
+      "compose": {
+        "services": [
+          "backend: exposed on port 8000",
+          "frontend: exposed on port 3000"
+        ]
+      }
+    }
+  },
+  "external_api": {
+    "preferred": "LanguageTool Public API (via language_tool_python)",
+    "alternative": "Local LanguageTool server (Java-based, avoids rate limits)",
+    "note": "Optional: OpenAI GPT API can be integrated for more advanced style suggestions"
+  },
+  "configuration": {
+    "grammar_rules": "allow users to enable/disable specific rule categories",
+    "output_preferences": "customizable summary format",
+    "language_variants": "support for different English dialects (US, UK, AU)"
+  },
+  "testing_requirements": {
+    "unit_tests": "coverage for all grammar checking functions",
+    "integration_tests": "end-to-end document processing",
+    "load_testing": "handle multiple concurrent uploads",
+    "sample_documents": "test with various document structures"
+  },
+  "example_output": [
+    "Line 4–5, Sentence 1",
+    ""Even in retirement, he carried the image of a railing set in stone, the kind that never moved. New boys come to him to watch him measure so they can learn."",
+    "• Problem: Tense shift → "come" (present) vs. surrounding past tense.",
+    "• Fix: → "New boys came to him to watch…"",
+    "",
+    "Line 12, Sentence 2",
+    ""…then laughed, 'My mind's only rearranging its filing cabinet,'."",
+    "• Problem: Extra comma before closing quotation mark.",
+    "• Fix: Remove the comma.",
+    "",
+    "Line 15–16, Sentence 1",
+    ""The company's quarterly report showed significant growth in revenue, which exceeded expectations by 15% compared to the previous year."",
+    "• Problem: Awkward phrasing with "which" clause.",
+    "• Fix: → "The company's quarterly report showed significant revenue growth, exceeding expectations by 15% compared to the previous year."",
+    "",
+    "Line 20, Sentence 3",
+    ""The team worked hard and they achieved their goals."",
+    "• Problem: Redundancy - "and they" is unnecessary.",
+    "• Fix: → "The team worked hard and achieved their goals."",
+    "",
+    "✅ Summary",
+    "• Verb tense consistency issues: 5",
+    "• Awkward phrasing: 3",
+    "• Redundancy: 2",
+    "• Grammar/punctuation: 4"
+  ]
+}

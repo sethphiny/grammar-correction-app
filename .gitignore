@@ -1,6 +1,41 @@
-# Project-wide ignores
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# OS generated files
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
 .DS_Store?
 ._*
@@ -9,34 +44,31 @@
 ehthumbs.db
 Thumbs.db
 
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-*.sublime-project
-*.sublime-workspace
-
-# Environment files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.env.*.local
-
-# Logs
-logs/
-*.log
+# Node.js
+node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Frontend build
+frontend/build/
+frontend/dist/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs/
+*.log
+
 # Runtime data
-pids
+pids/
 *.pid
 *.seed
 *.pid.lock
@@ -49,7 +81,7 @@ coverage/
 .nyc_output
 
 # Dependency directories
-node_modules/
+jspm_packages/
 
 # Optional npm cache directory
 .npm
@@ -72,10 +104,6 @@ node_modules/
 # Yarn Integrity file
 .yarn-integrity
 
-# dotenv environment variables file
-.env
-.env.test
-
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
@@ -89,9 +117,7 @@ dist
 
 # Gatsby files
 .cache/
-# Comment in the public line in if your project uses Gatsby and not Next.js
-# https://nextjs.org/blog/next-9-1#public-directory-support
-# public
+public
 
 # Storybook build outputs
 .out
@@ -101,82 +127,28 @@ dist
 tmp/
 temp/
 
-# Editor directories and files
-.vscode/
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Vite
-.vite
-
-# Turbo
-.turbo
-
-# pnpm
-.pnpm-debug.log*
-
-# ESLint
-.eslintcache
-
-# Prettier
-.prettierignore
-
-# TypeScript
-*.tsbuildinfo
-
-# Build outputs
-build/
-dist/
-out/
-
 # Docker
 .dockerignore
+
+# Uploaded files (temporary)
+uploads/
+temp_files/
 
 # Database
 *.db
 *.sqlite
 *.sqlite3
 
-# Backup files
-*.bak
-*.backup
-*.old
-
-# Archive files
-*.zip
-*.tar.gz
-*.rar
-
-# Test files
-test_outputs/
-test_results/
-coverage/
-
-# Documentation build
-docs/_build/
-
 # Jupyter Notebook
 .ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
 
 # pyenv
 .python-version
 
 # pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-#Pipfile.lock
+Pipfile.lock
 
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow
+# PEP 582
 __pypackages__/
 
 # Celery stuff
@@ -185,15 +157,6 @@ celerybeat.pid
 
 # SageMath parsed files
 *.sage.py
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
 
 # Spyder project settings
 .spyderproject
@@ -213,25 +176,8 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# FastAPI specific
-*.db
-*.sqlite
+# LanguageTool
+languagetool-server/
 
-# Temporary files
-*.tmp
-*.temp
-temp/
-tmp/
-
-# Logs
-logs/
-*.log
-
-# Test outputs
-test_outputs/
-test_results/
-
-# Project specific
-sample_output.docx
-test.docx
-test_2.docx
+# spaCy models
+spacy_models/
