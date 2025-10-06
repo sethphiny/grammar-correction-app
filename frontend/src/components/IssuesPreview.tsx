@@ -190,6 +190,15 @@ export const IssuesPreview: React.FC<IssuesPreviewProps> = ({ issues, summary })
                         </p>
                       </div>
                       
+                      {issue.corrected_sentence && (
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-900 mb-1">Corrected Sentence</h4>
+                          <p className="text-sm text-gray-700 bg-blue-50 p-3 rounded border border-blue-200">
+                            "{issue.corrected_sentence}"
+                          </p>
+                        </div>
+                      )}
+                      
                       <div className="flex justify-between items-center text-xs text-gray-500">
                         <span>Confidence: {Math.round(issue.confidence * 100)}%</span>
                         <span>Category: {getCategoryDisplayName(issue.category)}</span>

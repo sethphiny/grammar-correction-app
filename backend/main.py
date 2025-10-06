@@ -130,6 +130,24 @@ async def get_processing_status(task_id: str):
         error=task.get("error")
     )
 
+@app.get("/results/{task_id}")
+async def get_processing_results(task_id: str):
+    """
+    Get the processing results (issues and summary) for a completed task
+    """
+    if task_id not in processing_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task = processing_tasks[task_id]
+    
+    if task["status"] != "completed":
+        raise HTTPException(status_code=400, detail="Task not completed yet")
+    
+    if not task.get("result"):
+        raise HTTPException(status_code=404, detail="No results found")
+    
+    return task["result"]
+
 @app.get("/download/{task_id}")
 async def download_report(task_id: str):
     """
@@ -211,6 +229,7 @@ async def process_document(
             "report_path": report_path,
             "filename": f"{output_filename}.{output_format}",
             "issues_count": len(issues),
+            "issues": [issue.dict() for issue in issues],  # Convert Pydantic models to dict
             "summary": grammar_checker.get_issues_summary(issues)
         }
         

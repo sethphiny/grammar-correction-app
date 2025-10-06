@@ -7,6 +7,7 @@ export interface GrammarIssue {
   fix: string;
   category: string;
   confidence: number;
+  corrected_sentence?: string;
 }
 
 export interface DocumentData {

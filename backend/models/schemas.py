@@ -28,6 +28,7 @@ class GrammarIssue(BaseModel):
     fix: str = Field(..., description="Suggested fix")
     category: str = Field(..., description="Category of the issue")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score for the issue")
+    corrected_sentence: Optional[str] = Field(None, description="Full sentence with the fix applied (for spelling errors)")
 
 class DocumentLine(BaseModel):
     """Represents a line in the document"""

@@ -6,8 +6,51 @@ import io
 import re
 from typing import List, Dict, Any, Optional
 from docx import Document
-import textract
 from models.schemas import DocumentData, DocumentLine
+
+# Try to import textract, fallback to alternative if not available
+try:
+    import textract
+    TEXTRACT_AVAILABLE = True
+except ImportError:
+    TEXTRACT_AVAILABLE = False
+    print("Warning: textract not available. .doc file support will be limited.")
+
+# Alternative for .doc files
+try:
+    import docx2txt
+    DOCX2TXT_AVAILABLE = True
+except ImportError:
+    DOCX2TXT_AVAILABLE = False
+
+def sanitize_text(text: str) -> str:
+    """
+    Cleans up text extracted from .docx before analysis.
+    - Removes control characters and weird XML leftovers.
+    - Normalizes whitespace and quotes.
+    - Keeps punctuation and letters intact.
+    """
+    if not text:
+        return ""
+
+    # 1️⃣ Encode-decode to remove non-printable or invalid chars
+    text = text.encode("utf-8", errors="ignore").decode("utf-8")
+
+    # 2️⃣ Remove weird zero-width spaces, control chars, etc.
+    text = re.sub(r"[\u200B-\u200F\u202A-\u202E\u2060-\u206F]", "", text)
+
+    # 3️⃣ Replace multiple newlines/tabs with a single space
+    text = re.sub(r"[\r\n\t]+", " ", text)
+
+    # 4️⃣ Collapse multiple spaces
+    text = re.sub(r"\s{2,}", " ", text).strip()
+
+    # 5️⃣ Optionally normalize curly quotes and dashes
+    text = text.replace(""", '"').replace(""", '"')
+    text = text.replace("'", "'").replace("'", "'")
+    text = text.replace("–", "-").replace("—", "-")
+
+    return text
 
 class DocumentParser:
     """Service for parsing Word documents and extracting text with line information"""
@@ -59,17 +102,20 @@ class DocumentParser:
                     
                     for line_text in paragraph_lines:
                         if line_text.strip():  # Skip empty lines
-                            # Split line into sentences
-                            sentences = self._split_into_sentences(line_text.strip())
-                            
-                            lines.append(DocumentLine(
-                                line_number=line_number,
-                                content=line_text.strip(),
-                                sentences=sentences
-                            ))
-                            
-                            total_sentences += len(sentences)
-                            line_number += 1
+                            # Sanitize the text before processing
+                            sanitized_text = sanitize_text(line_text.strip())
+                            if sanitized_text:  # Only process if sanitization didn't remove everything
+                                # Split line into sentences
+                                sentences = self._split_into_sentences(sanitized_text)
+                                
+                                lines.append(DocumentLine(
+                                    line_number=line_number,
+                                    content=sanitized_text,
+                                    sentences=sentences
+                                ))
+                                
+                                total_sentences += len(sentences)
+                                line_number += 1
             
             # Extract metadata
             metadata = {
@@ -92,19 +138,47 @@ class DocumentParser:
             raise Exception(f"Failed to parse DOCX file: {str(e)}")
     
     async def _parse_doc(self, file_content: bytes, filename: str) -> DocumentData:
-        """Parse DOC file using textract"""
+        """Parse DOC file using available methods"""
         try:
-            # Save content to temporary file for textract
             import tempfile
             import os
             
+            # Save content to temporary file
             with tempfile.NamedTemporaryFile(suffix='.doc', delete=False) as temp_file:
                 temp_file.write(file_content)
                 temp_file_path = temp_file.name
             
             try:
-                # Extract text using textract
-                text = textract.process(temp_file_path).decode('utf-8')
+                text = None
+                extraction_method = None
+                
+                # Try textract first if available
+                if TEXTRACT_AVAILABLE:
+                    try:
+                        text = textract.process(temp_file_path).decode('utf-8')
+                        extraction_method = 'textract'
+                    except Exception as e:
+                        print(f"Textract failed: {e}")
+                
+                # Fallback to docx2txt if textract failed or unavailable
+                if not text and DOCX2TXT_AVAILABLE:
+                    try:
+                        text = docx2txt.process(temp_file_path)
+                        extraction_method = 'docx2txt'
+                    except Exception as e:
+                        print(f"docx2txt failed: {e}")
+                
+                # If both methods failed, try to read as plain text
+                if not text:
+                    try:
+                        with open(temp_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            text = f.read()
+                        extraction_method = 'plain_text'
+                    except Exception as e:
+                        print(f"Plain text reading failed: {e}")
+                
+                if not text:
+                    raise Exception("All parsing methods failed. Please convert your .doc file to .docx format.")
                 
                 # Split into lines
                 lines = []
@@ -113,23 +187,27 @@ class DocumentParser:
                 
                 for line_text in text.split('\n'):
                     if line_text.strip():  # Skip empty lines
-                        # Split line into sentences
-                        sentences = self._split_into_sentences(line_text.strip())
-                        
-                        lines.append(DocumentLine(
-                            line_number=line_number,
-                            content=line_text.strip(),
-                            sentences=sentences
-                        ))
-                        
-                        total_sentences += len(sentences)
-                        line_number += 1
+                        # Sanitize the text before processing
+                        sanitized_text = sanitize_text(line_text.strip())
+                        if sanitized_text:  # Only process if sanitization didn't remove everything
+                            # Split line into sentences
+                            sentences = self._split_into_sentences(sanitized_text)
+                            
+                            lines.append(DocumentLine(
+                                line_number=line_number,
+                                content=sanitized_text,
+                                sentences=sentences
+                            ))
+                            
+                            total_sentences += len(sentences)
+                            line_number += 1
                 
                 # Extract metadata
                 metadata = {
                     'filename': filename,
                     'format': 'doc',
-                    'extraction_method': 'textract'
+                    'extraction_method': extraction_method,
+                    'fallback_used': extraction_method != 'textract'
                 }
                 
                 return DocumentData(
@@ -168,32 +246,40 @@ class DocumentParser:
             'p.m.', 'u.s.', 'u.k.', 'ph.d.', 'm.d.', 'b.a.', 'm.a.', 'b.s.', 'm.s.'
         }
         
-        # Pattern to match sentence endings, but not abbreviations
-        sentence_pattern = r'(?<!\b(?:' + '|'.join(re.escape(abbr) for abbr in abbreviations) + r'))[.!?]+(?=\s+[A-Z]|\s*$)'
+        # Use a more robust approach: find sentence boundaries manually
+        # This avoids regex issues and handles abbreviations properly
+        sentences = []
+        current_sentence = ""
+        i = 0
         
-        # Split text into sentences
-        sentences = re.split(sentence_pattern, text)
-        
-        # Clean up sentences and filter out empty ones
-        cleaned_sentences = []
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if sentence:
-                # Add back the punctuation if it was removed
-                if not sentence.endswith(('.', '!', '?')):
-                    # Find the original punctuation for this sentence
-                    original_text = text
-                    if sentence in original_text:
-                        start_pos = original_text.find(sentence)
-                        end_pos = start_pos + len(sentence)
-                        if end_pos < len(original_text):
-                            next_char = original_text[end_pos]
-                            if next_char in '.!?':
-                                sentence += next_char
+        while i < len(text):
+            char = text[i]
+            current_sentence += char
+            
+            # Check if we've hit a potential sentence ending
+            if char in '.!?':
+                # Look ahead to see what comes next
+                next_chars = text[i+1:i+3].strip()
                 
-                cleaned_sentences.append(sentence)
+                # If next character is uppercase or we're at the end, this might be a sentence end
+                if not next_chars or (len(next_chars) > 0 and next_chars[0].isupper()):
+                    # Check if current sentence ends with an abbreviation
+                    sentence_lower = current_sentence.lower().strip()
+                    ends_with_abbreviation = any(sentence_lower.endswith(abbr) for abbr in abbreviations)
+                    
+                    # If it doesn't end with an abbreviation, this is a sentence boundary
+                    if not ends_with_abbreviation:
+                        sentences.append(current_sentence.strip())
+                        current_sentence = ""
+            
+            i += 1
         
-        return cleaned_sentences
+        # Add the last sentence if there's any remaining text
+        if current_sentence.strip():
+            sentences.append(current_sentence.strip())
+        
+        # Filter out empty sentences
+        return [s for s in sentences if s.strip()]
     
     def get_line_range_for_sentence(self, lines: List[DocumentLine], sentence_text: str) -> tuple:
         """

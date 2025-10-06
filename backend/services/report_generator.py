@@ -252,6 +252,10 @@ class ReportGenerator:
             # Fix
             doc.add_paragraph(f"• Fix: {issue.fix}", style='CustomIssue')
             
+            # Corrected sentence (for spelling errors)
+            if issue.corrected_sentence:
+                doc.add_paragraph(f"• Corrected sentence: \"{issue.corrected_sentence}\"", style='CustomIssue')
+            
             # Add spacing
             doc.add_paragraph("", style='CustomIssue')
     
@@ -280,6 +284,10 @@ class ReportGenerator:
             
             # Fix
             story.append(Paragraph(f"• Fix: {issue.fix}", styles['CustomIssue']))
+            
+            # Corrected sentence (for spelling errors)
+            if issue.corrected_sentence:
+                story.append(Paragraph(f"• Corrected sentence: \"{issue.corrected_sentence}\"", styles['CustomIssue']))
             
             # Add spacing
             story.append(Spacer(1, 6))

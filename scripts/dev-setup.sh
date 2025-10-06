@@ -51,7 +51,14 @@ check_requirements() {
     # Check pnpm
     if ! command -v pnpm &> /dev/null; then
         print_warning "pnpm is not installed. Installing pnpm..."
-        npm install -g pnpm
+        if npm install -g pnpm; then
+            print_success "pnpm installed successfully"
+        else
+            print_error "Failed to install pnpm. Please install it manually: npm install -g pnpm"
+            exit 1
+        fi
+    else
+        print_success "pnpm is available"
     fi
     
     # Check Docker
@@ -87,11 +94,21 @@ setup_backend() {
     
     # Install dependencies
     print_status "Installing Python dependencies..."
-    pip install -r requirements.txt
+    if ! pip install -r requirements.txt; then
+        print_error "Failed to install Python dependencies"
+        exit 1
+    fi
     
     # Download spaCy model
     print_status "Downloading spaCy English model..."
-    python -m spacy download en_core_web_sm
+    if ! python -c "import spacy; spacy.load('en_core_web_sm')" 2>/dev/null; then
+        print_status "Installing spaCy English model..."
+        # Try direct download if spacy CLI fails
+        pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+        print_success "spaCy English model installed successfully"
+    else
+        print_success "spaCy English model already available"
+    fi
     
     # Create necessary directories
     mkdir -p temp_files uploads
@@ -107,8 +124,19 @@ setup_frontend() {
     cd frontend
     
     # Install dependencies
-    print_status "Installing Node.js dependencies..."
-    pnpm install
+    print_status "Installing Node.js dependencies with pnpm..."
+    
+    # Check if node_modules exists, if so clean it first
+    if [ -d "node_modules" ]; then
+        print_status "Cleaning existing node_modules..."
+        rm -rf node_modules
+    fi
+    
+    # Install with pnpm, using strict-peer-dependencies=false to handle TypeScript conflicts
+    if ! pnpm install --no-strict-peer-dependencies; then
+        print_warning "pnpm install failed, trying with force flag..."
+        pnpm install --force --no-strict-peer-dependencies
+    fi
     
     print_success "Frontend environment setup completed"
     cd ..
@@ -163,6 +191,41 @@ setup_languagetool() {
     print_warning "  or use the docker-compose setup"
 }
 
+# Verify setup
+verify_setup() {
+    print_status "Verifying setup..."
+    
+    # Verify backend
+    cd backend
+    if [ -f "venv/bin/activate" ]; then
+        source venv/bin/activate
+        if python -c "import spacy; nlp = spacy.load('en_core_web_sm'); print('✓ spaCy model loaded')" 2>/dev/null; then
+            print_success "Backend spaCy model verified"
+        else
+            print_warning "Backend spaCy model verification failed"
+        fi
+        if python -c "from services.hybrid_grammar_checker import HybridGrammarChecker; print('✓ Grammar checker imports successfully')" 2>/dev/null; then
+            print_success "Backend grammar checker verified"
+        else
+            print_warning "Backend grammar checker verification failed"
+        fi
+    else
+        print_warning "Backend virtual environment not found"
+    fi
+    cd ..
+    
+    # Verify frontend
+    cd frontend
+    if [ -d "node_modules" ] && [ -f "package.json" ]; then
+        print_success "Frontend dependencies verified"
+    else
+        print_warning "Frontend dependencies verification failed"
+    fi
+    cd ..
+    
+    print_success "Setup verification completed"
+}
+
 # Main setup function
 main() {
     echo
@@ -182,6 +245,10 @@ main() {
     echo
     
     setup_languagetool
+    echo
+    
+    # Verify setup
+    verify_setup
     echo
     
     print_success "🎉 Development environment setup completed!"

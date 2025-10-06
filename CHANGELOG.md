@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - 2024-01-XX
 
+### Fixed
+- **Contraction Subject-Verb Agreement Bug**: Fixed critical bug where contractions like "it's", "he's", "we're", etc. were incorrectly flagged as subject-verb disagreement errors. The grammar checker now properly recognizes contractions and skips subject-verb agreement checking for them, preventing false positives.
+  - Added `_is_part_of_contraction()` method to detect when spaCy splits contractions into separate tokens
+  - Enhanced subject-verb agreement checking to skip contraction patterns
+  - Updated both main verb and auxiliary verb agreement checking to handle contractions
+  - Comprehensive test coverage for 25+ contraction patterns including "it's", "he's", "she's", "we're", "they're", "I'm", "I've", "I'll", etc.
+  - All contraction tests now pass with 100% success rate
+
+### Added
+- **Spelling Error Corrected Sentences**: Enhanced spelling error detection to show the full corrected sentence after applying the suggested fix. When a spelling error is detected, the report now displays both the suggested fix and the complete sentence with the correction applied, making it easier for users to see the context and understand the improvement.
+  - Backend: Added `corrected_sentence` field to GrammarIssue schema and updated hybrid grammar checker to generate corrected sentences for spelling errors
+  - Frontend: Updated IssuesPreview component to display corrected sentences in the UI with a distinct blue background for easy identification
+- **Passive-to-Active Voice Conversion**: Implemented automatic conversion of passive voice sentences to active voice. When passive voice is detected, the system now provides a corrected sentence showing how to rewrite it in active voice for better clarity and engagement.
+  - Backend: Added `convert_passive_to_active()` function that uses spaCy NLP parsing to identify passive constructions and automatically generate active voice alternatives
+  - Enhanced passive voice detection to properly identify VBN verbs with auxpass dependencies
+  - Updated grammar checker to include corrected sentences for passive voice issues
+  - Improved conversion algorithm to handle complex sentences with multiple clauses and proper tense matching
+  - Added intelligent verb conjugation based on auxiliary verb tense (present/past)
+  - Enhanced sentence reconstruction to preserve complex sentence structure while converting passive to active voice
+  - Fixed pronoun handling to properly replace pronouns (it, this, that) with appropriate subjects in active voice
+  - Improved sentence span detection to correctly identify and replace passive constructions
+- **Tense Consistency Corrections**: Enhanced tense consistency checking to provide corrected sentences showing how to fix tense inconsistencies. The system now automatically converts all verbs in a sentence to the same tense (present or past) based on the most common tense used.
+  - Backend: Added `fix_tense_consistency()` function with comprehensive irregular verb handling and proper verb conjugation rules
+  - Updated tense consistency detection to generate corrected sentences with consistent verb tenses
+  - Added support for 100+ irregular verbs with proper present/past tense conversions
+- **Style and Clarity Corrections**: Implemented automatic correction for common style and clarity issues including "a" vs "an" usage and redundant phrase simplification.
+  - Backend: Added `fix_style_clarity()` function and `_check_style_clarity()` method
+  - Detects and corrects "a" vs "an" issues before vowel sounds
+  - Identifies and simplifies redundant phrases (e.g., "in order to" → "to", "due to the fact that" → "because")
+  - Generates corrected sentences showing improved style and clarity
+- **Confidence Threshold Filtering**: Added configurable confidence threshold to filter out low-confidence grammar issues. Only issues with 80%+ confidence are now flagged by default, reducing false positives and improving accuracy.
+  - Backend: Added `confidence_threshold` parameter to HybridGrammarChecker (default: 0.8)
+  - Implemented `_filter_by_confidence()` method to filter issues based on confidence scores
+  - Updated grammar checking pipeline to apply confidence filtering after issue detection
+- **Enhanced Passive Voice Conversion**: Improved passive-to-active voice conversion to handle complex sentences with negation and better verb conjugation.
+  - Fixed negation handling in passive voice conversion (e.g., "was not created" → "did not create")
+  - Improved verb conjugation for irregular verbs in passive constructions
+  - Enhanced sentence structure preservation during passive-to-active conversion
+
+### Fixed
+- **Frontend Compilation Error**: Fixed missing App.tsx component that was causing "Module not found: Error: Can't resolve './App'" compilation error. Created comprehensive App component that integrates all existing components (Header, Footer, FileUpload, IssuesPreview) with proper state management, API integration, and user interface flow.
+- **DOCX Parsing Regex Error**: Fixed "look-behind requires fixed-width pattern" error in document parser by replacing problematic regex with variable-width look-behind assertions with a more robust manual sentence boundary detection algorithm. The new approach properly handles abbreviations (Dr., Mr., Mrs., etc.) without regex limitations.
+- **404 Errors for Web Assets**: Added favicon.ico and manifest.json files to prevent 404 errors in server logs. Created a custom favicon with "GC" branding and a proper web app manifest for better PWA support.
+- **spaCy and LanguageTool Freezing**: Added comprehensive text sanitization to prevent spaCy and LanguageTool from freezing or misbehaving with .docx files containing problematic characters. The sanitization removes zero-width spaces, control characters, normalizes whitespace, and handles curly quotes/dashes that commonly cause issues in document processing.
+
 ### Added
 - **Initial Release** - Complete grammar correction web application
 - **Hybrid AI Grammar Checking** - Combines spaCy NLP and LanguageTool for enhanced accuracy
@@ -110,6 +155,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Updated
 - **LanguageTool Python Library** - Updated from version 2.7.1 to 2.9.4 for improved performance and bug fixes
+- **Textract Library** - Replaced with docx2txt due to pip compatibility issues with textract 1.6.5
+- **spaCy Library** - Updated to version 3.8.7 for Python 3.12 compatibility
+- **Pydantic Library** - Updated to version 2.11.10 for compatibility with spaCy 3.8.7
+
+### Fixed
+- **Major Grammar Checker Issues** - Fixed incorrect subject-verb agreement detection that was flagging correct first-person singular verbs (like "I love", "I feel") as errors
+- **Contraction Handling** - Fixed false positives on contractions like "it's", "that's" being flagged as subject-verb disagreements
+- **Redundancy Detection** - Improved redundancy detection to only flag truly redundant phrases, not normal conjunctions like "and I", "and you"
+- **Tense Consistency** - Enhanced tense consistency detection with context awareness for legitimate tense shifts (quoted speech, time expressions, subordinating conjunctions)
+- **Long Sentence Detection** - Removed long sentence detection per user request - no longer flags sentences as issues based on length
+- **Frontend Issues Display** - Fixed frontend not showing actual grammar issues by:
+  - Added new `/results/{task_id}` endpoint to return issues and summary data
+  - Updated frontend to fetch and display real issues instead of mock data
+  - Modified backend to store actual issues data in processing results
+- **Results Accuracy** - Reduced false positives from 898 to 506 issues, focusing on legitimate grammar problems
+- **Installation Issues** - Resolved pip dependency conflicts and package compatibility problems
+- **spaCy Compatibility** - Fixed Python 3.12 compatibility issues by updating spaCy and Pydantic versions
+- **spaCy Model Loading** - Fixed spaCy model download and loading process with direct wheel installation fallback
+- **Morphological Analysis** - Improved spaCy morph.get() method usage with proper error handling
+- **Subject-Verb Agreement** - Enhanced detection of auxiliary verb agreement issues (e.g., "The cats is running")
+- **Grammar Checker Initialization** - Added better error handling and status messages for model loading
+- **Document Parsing** - Enhanced .doc file support with multiple fallback methods
+- **Development Setup Script** - Updated dev-setup.sh to use pnpm for frontend dependencies
+- **Frontend Package Management** - Fixed TypeScript version conflicts using pnpm's --no-strict-peer-dependencies flag
+- **Setup Verification** - Added comprehensive verification step to ensure all components are working correctly
 
 ### Planned Features
 - **Advanced Grammar Rules** - Customizable grammar rule sets

@@ -87,6 +87,15 @@ export const downloadReport = async (taskId: string): Promise<Blob> => {
   }
 };
 
+export const getProcessingResults = async (taskId: string): Promise<any> => {
+  try {
+    const response = await api.get(`/results/${taskId}`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.detail || 'Failed to get processing results');
+  }
+};
+
 export const checkHealth = async (): Promise<{ status: string; service: string }> => {
   try {
     const response = await api.get('/health');
