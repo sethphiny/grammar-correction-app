@@ -508,13 +508,15 @@ class ReportGenerator:
     def _get_category_display_name(self, category: str) -> str:
         """Get display name for category"""
         category_names = {
-            "tense_consistency": "Verb tense consistency issues",
-            "subject_verb_agreement": "Subject-verb agreement",
-            "punctuation": "Grammar/punctuation (commas, quotation marks)",
-            "awkward_phrasing": "Awkward phrasing",
             "redundancy": "Redundancy",
-            "style": "Style and clarity",
+            "awkward_phrasing": "Awkward phrasing",
+            "punctuation": "Punctuation",
+            "grammar": "Grammar errors",
+            "dialogue": "Dialogue formatting and punctuation",
+            "capitalisation": "Capitalisation errors",
+            "tense_consistency": "Tense consistency (past/present)",
             "spelling": "Spelling errors",
+            "parallelism_concision": "Parallelism/Concision (Experimental)",  # EXPERIMENTAL: May produce false positives
         }
 
         return category_names.get(category, category.replace("_", " ").title())

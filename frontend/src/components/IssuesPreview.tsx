@@ -29,11 +29,12 @@ export const IssuesPreview: React.FC<IssuesPreviewProps> = ({ issues, summary })
   const getCategoryColor = (category: string) => {
     const colors = {
       'tense_consistency': 'bg-blue-100 text-blue-800',
-      'subject_verb_agreement': 'bg-green-100 text-green-800',
       'punctuation': 'bg-yellow-100 text-yellow-800',
       'awkward_phrasing': 'bg-purple-100 text-purple-800',
       'redundancy': 'bg-red-100 text-red-800',
-      'style': 'bg-indigo-100 text-indigo-800',
+      'grammar': 'bg-orange-100 text-orange-800',
+      'dialogue': 'bg-teal-100 text-teal-800',
+      'capitalisation': 'bg-cyan-100 text-cyan-800',
       'spelling': 'bg-pink-100 text-pink-800',
     };
     return colors[category as keyof typeof colors] || 'bg-gray-100 text-gray-800';
@@ -42,11 +43,12 @@ export const IssuesPreview: React.FC<IssuesPreviewProps> = ({ issues, summary })
   const getCategoryDisplayName = (category: string) => {
     const names = {
       'tense_consistency': 'Tense Consistency',
-      'subject_verb_agreement': 'Subject-Verb Agreement',
       'punctuation': 'Punctuation',
       'awkward_phrasing': 'Awkward Phrasing',
       'redundancy': 'Redundancy',
-      'style': 'Style & Clarity',
+      'grammar': 'Grammar',
+      'dialogue': 'Dialogue',
+      'capitalisation': 'Capitalisation',
       'spelling': 'Spelling',
     };
     return names[category as keyof typeof names] || category.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());

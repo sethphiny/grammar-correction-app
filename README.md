@@ -40,8 +40,15 @@ cd backend
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 python3 -m pip install -r requirements.txt
+
+# Download spaCy language model for passive voice detection
+python3 -m spacy download en_core_web_sm
+
+# Start the backend server
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+**Note**: The spaCy model `en_core_web_sm` is required for smart passive voice detection. If not installed, the feature will be automatically disabled with a warning message.
 
 #### Frontend Setup
 
@@ -53,28 +60,33 @@ pnpm run dev
 
 ## Architecture
 
-### Hybrid Grammar Checking
+### Advanced Grammar Checking
 
-The application uses a sophisticated hybrid approach:
+The application uses multiple sophisticated approaches:
 
-1. **spaCy NLP**: 
-   - Sentence segmentation
-   - Part-of-speech tagging
-   - Named entity recognition
-   - Dependency parsing
-   - Custom rule-based checks
+1. **Pattern-Based Checking**:
+   - 100+ redundant phrases with corrections
+   - 100+ awkward phrasing alternatives
+   - Common punctuation errors
+   - Grammar mistakes (homophones, verb errors, double negatives)
+   - Capitalization errors
+   - Tense consistency issues
+   - Common spelling mistakes
+   - 40+ wordy phrases for concision
 
-2. **LanguageTool**:
-   - Grammar and style checking
-   - Punctuation rules
-   - Style suggestions
-   - Language variant support
+2. **spaCy NLP (Linguistic Analysis)**:
+   - **Smart Passive Voice Detection**: Uses dependency parsing (auxpass) to identify true passive constructions
+     - Eliminates false positives (e.g., "is nuanced" is NOT flagged)
+     - Only flags problematic passives without clear agents
+     - Generates context-specific fix suggestions
+   - Sentence segmentation and tokenization
+   - Part-of-speech tagging for advanced analysis
 
-3. **Combined Analysis**:
-   - Cross-validates findings
-   - Prioritizes corrections
-   - Eliminates false positives
-   - Provides context-aware suggestions
+3. **Intelligent Filtering**:
+   - Skips intentional passive voice patterns ("It was...", "There was...")
+   - Excludes technical/academic contexts (framework, methodology, research)
+   - Context-aware duplicate detection
+   - Confidence scoring for each issue
 
 ### Report Format
 

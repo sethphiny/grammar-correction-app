@@ -7,7 +7,7 @@ import uuid
 import asyncio
 import json
 from typing import Dict, Any, Set
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -79,15 +79,29 @@ async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "grammar-correction-api"}
 
+@app.get("/categories")
+async def get_categories():
+    """
+    Get available grammar checking categories
+    """
+    return {"categories": grammar_checker.get_available_categories()}
+
 @app.post("/upload", response_model=UploadResponse)
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    output_filename: str = None,
-    output_format: str = "docx"
+    output_filename: str = Form(None),
+    output_format: str = Form("docx"),
+    categories: str = Form(None)  # Comma-separated category IDs
 ):
     """
     Upload a document for grammar checking
+    
+    Args:
+        file: Document file to analyze
+        output_filename: Optional output filename (form field)
+        output_format: Output format (docx or pdf) (form field)
+        categories: Optional comma-separated list of category IDs to check (e.g., "redundancy,grammar") (form field)
     """
     # Validate file type
     if not file.filename.lower().endswith(('.doc', '.docx')):
@@ -113,12 +127,22 @@ async def upload_document(
         base_name = os.path.splitext(file.filename)[0]
         output_filename = f"{base_name}_corrected"
     
+    # Parse categories parameter
+    print(f"[{task_id}] Received categories parameter: {repr(categories)}")
+    enabled_categories = None
+    if categories:
+        enabled_categories = [cat.strip() for cat in categories.split(',') if cat.strip()]
+        print(f"[{task_id}] Parsed categories: {enabled_categories}")
+    else:
+        print(f"[{task_id}] No categories specified - will check all categories")
+    
     # Store task information
     processing_tasks[task_id] = {
         "status": "uploaded",
         "filename": file.filename,
         "output_filename": output_filename,
         "output_format": output_format,
+        "categories": enabled_categories,
         "progress": 0,
         "result": None,
         "error": None
@@ -133,7 +157,8 @@ async def upload_document(
         content,
         file.filename,
         output_filename,
-        output_format
+        output_format,
+        enabled_categories
     )
     
     print(f"[{task_id}] Background task added")
@@ -244,24 +269,34 @@ async def process_document_with_delay(
     file_content: bytes,
     original_filename: str,
     output_filename: str,
-    output_format: str
+    output_format: str,
+    enabled_categories: list = None
 ):
     """
     Process document with a small delay to ensure WebSocket connects first
     """
     # Wait 1 second to allow WebSocket connection to establish
     await asyncio.sleep(1)
-    await process_document(task_id, file_content, original_filename, output_filename, output_format)
+    await process_document(task_id, file_content, original_filename, output_filename, output_format, enabled_categories)
 
 async def process_document(
     task_id: str,
     file_content: bytes,
     original_filename: str,
     output_filename: str,
-    output_format: str
+    output_format: str,
+    enabled_categories: list = None
 ):
     """
     Background task to process the uploaded document with real-time WebSocket updates
+    
+    Args:
+        task_id: Unique task identifier
+        file_content: Document file content
+        original_filename: Original filename
+        output_filename: Output filename
+        output_format: Output format (docx or pdf)
+        enabled_categories: Optional list of category IDs to check
     """
     try:
         print(f"[{task_id}] Starting document processing...")
@@ -344,7 +379,8 @@ async def process_document(
         
         issues = await grammar_checker.check_document(
             document_data,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            enabled_categories=enabled_categories
         )
         
         print(f"[{task_id}] Found {len(issues)} issues")

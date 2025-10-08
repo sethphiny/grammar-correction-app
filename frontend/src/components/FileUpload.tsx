@@ -1,10 +1,16 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { File, Upload, AlertCircle } from 'lucide-react';
 import { OutputFormatEnum } from '../types';
+import { apiClient } from '../services/api';
+
+interface Category {
+  id: string;
+  name: string;
+}
 
 interface FileUploadProps {
-  onFileUpload: (file: File, outputFilename: string, outputFormat: OutputFormatEnum) => void;
+  onFileUpload: (file: File, outputFilename: string, outputFormat: OutputFormatEnum, categories: string[]) => void;
   disabled?: boolean;
 }
 
@@ -13,6 +19,25 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
   const [outputFormat, setOutputFormat] = useState<OutputFormatEnum>(OutputFormatEnum.DOCX);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
+  const [selectAll, setSelectAll] = useState(true);
+
+  // Fetch available categories on mount
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const response = await apiClient.get('/categories');
+        const cats = response.data.categories;
+        setCategories(cats);
+        // Select all by default
+        setSelectedCategories(new Set(cats.map((c: Category) => c.id)));
+      } catch (error) {
+        console.error('Failed to fetch categories:', error);
+      }
+    };
+    fetchCategories();
+  }, []);
 
   const onDrop = useCallback((acceptedFiles: File[], rejectedFiles: any[]) => {
     setError(null);
@@ -52,6 +77,27 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
     disabled
   });
 
+  const toggleCategory = (categoryId: string) => {
+    const newSelected = new Set(selectedCategories);
+    if (newSelected.has(categoryId)) {
+      newSelected.delete(categoryId);
+    } else {
+      newSelected.add(categoryId);
+    }
+    setSelectedCategories(newSelected);
+    setSelectAll(newSelected.size === categories.length);
+  };
+
+  const handleSelectAll = () => {
+    if (selectAll) {
+      setSelectedCategories(new Set());
+      setSelectAll(false);
+    } else {
+      setSelectedCategories(new Set(categories.map(c => c.id)));
+      setSelectAll(true);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -65,7 +111,12 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
       return;
     }
 
-    onFileUpload(selectedFile, outputFilename.trim(), outputFormat);
+    if (selectedCategories.size === 0) {
+      setError('Please select at least one category to analyze.');
+      return;
+    }
+
+    onFileUpload(selectedFile, outputFilename.trim(), outputFormat, Array.from(selectedCategories));
   };
 
   const handleReset = () => {
@@ -159,10 +210,52 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
           </div>
         </div>
 
+        {/* Category Selection */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-2">
+            Select Categories to Analyze
+          </label>
+          <div className="border border-gray-300 rounded p-3 space-y-2 max-h-64 overflow-y-auto">
+            {/* Select All */}
+            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
+              <input
+                type="checkbox"
+                checked={selectAll}
+                onChange={handleSelectAll}
+                disabled={disabled}
+                className="w-4 h-4 text-gray-900 border-gray-300 rounded focus:ring-gray-900"
+              />
+              <span className="text-sm font-medium text-gray-900">Select All</span>
+            </label>
+            <div className="border-t border-gray-200 my-2"></div>
+            {/* Individual Categories */}
+            {categories.map((category) => (
+              <label
+                key={category.id}
+                className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-1 rounded"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedCategories.has(category.id)}
+                  onChange={() => toggleCategory(category.id)}
+                  disabled={disabled}
+                  className="w-4 h-4 text-gray-900 border-gray-300 rounded focus:ring-gray-900"
+                />
+                <span className="text-sm text-gray-700">{category.name}</span>
+              </label>
+            ))}
+          </div>
+          {selectedCategories.size > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              {selectedCategories.size} {selectedCategories.size === 1 ? 'category' : 'categories'} selected
+            </p>
+          )}
+        </div>
+
         {/* Submit Button */}
         <button
           type="submit"
-          disabled={!selectedFile || !outputFilename.trim() || disabled}
+          disabled={!selectedFile || !outputFilename.trim() || selectedCategories.size === 0 || disabled}
           className="w-full bg-gray-900 text-white py-2 px-4 rounded text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {disabled ? 'Processing...' : 'Analyze'}

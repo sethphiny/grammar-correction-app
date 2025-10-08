@@ -7,6 +7,23 @@ import asyncio
 from typing import List, Dict, Any, Optional, Callable
 from models.schemas import DocumentData, DocumentLine, GrammarIssue
 
+# Import spaCy for linguistic analysis (passive voice detection)
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+    try:
+        nlp = spacy.load("en_core_web_sm")
+    except OSError:
+        # Model not installed, disable spaCy features
+        nlp = None
+        SPACY_AVAILABLE = False
+        print("Warning: spaCy model 'en_core_web_sm' not found. Passive voice detection will be disabled.")
+        print("To enable, run: python3 -m spacy download en_core_web_sm")
+except ImportError:
+    SPACY_AVAILABLE = False
+    nlp = None
+    print("Warning: spaCy not installed. Passive voice detection will be disabled.")
+
 
 def sanitize_text(text: str) -> str:
     """
@@ -105,7 +122,10 @@ def sanitize_text(text: str) -> str:
 
 
 class GrammarChecker:
-    """Grammar checker focusing on redundant phrases, awkward phrasing, punctuation, and grammar"""
+    """Grammar checker focusing on redundant phrases, awkward phrasing, punctuation, grammar, spelling, and parallelism/concision
+    
+    Note: Parallelism/Concision is an EXPERIMENTAL feature and may produce false positives
+    """
     
     def __init__(self, confidence_threshold: float = 0.8):
         self.confidence_threshold = confidence_threshold
@@ -116,6 +136,11 @@ class GrammarChecker:
             'awkward_phrasing': 'Awkward Phrasing',
             'punctuation': 'Punctuation',
             'grammar': 'Grammar',
+            'dialogue': 'Dialogue',
+            'capitalisation': 'Capitalisation',
+            'tense_consistency': 'Tense Consistency',
+            'spelling': 'Spelling',
+            'parallelism_concision': 'Parallelism/Concision (Experimental)',  # EXPERIMENTAL: May produce false positives
         }
         
         # Common redundant phrases and their corrections
@@ -423,26 +448,601 @@ class GrammarChecker:
              "Incorrect usage: 'effect' should be 'affect' (as a verb)",
              lambda m, t: f"affect {m.group(1)}"),
         ]
+        
+        # Dialogue patterns: (pattern, description, fix_function, category)
+        self.dialogue_patterns = [
+            # Missing comma before closing quote with dialogue tag
+            (r'([a-zA-Z])"(\s+)(said|asked|replied|answered|whispered|shouted|exclaimed|muttered|added|continued|explained|insisted|suggested|declared|announced|complained|admitted|agreed|disagreed|interrupted|protested)',
+             "Missing comma before closing quotation mark in dialogue",
+             lambda m, t: f'{m.group(1)}," {m.group(3)}'),
+            
+            # Comma after closing quote with dialogue tag should be inside
+            (r'"(\s*),(\s+)(said|asked|replied|answered|whispered|shouted|exclaimed|muttered|added|continued|explained|insisted|suggested|declared|announced|complained|admitted|agreed|disagreed|interrupted|protested)',
+             "Comma should be inside quotation marks before dialogue tag",
+             lambda m, t: f'," {m.group(3)}'),
+            
+            # Missing quotation marks for dialogue
+            # This is complex and might have false positives, so we'll be conservative
+            
+            # Dialogue tag capitalization - should be lowercase after quote
+            (r'"\s+([A-Z])(said|aid)\b',
+             "Dialogue tag should be lowercase after quotation mark",
+             lambda m, t: f'" {m.group(1).lower()}{m.group(2)}'),
+            
+            # New paragraph needed for new speaker (detect consecutive dialogue)
+            # This is complex and context-dependent, skip for now
+            
+            # Single quotes vs double quotes consistency
+            # British vs American style - skip for now as it's style-dependent
+        ]
+        
+        # Capitalisation patterns: (pattern, description, fix_function)
+        self.capitalisation_patterns = [
+            # Sentence doesn't start with capital letter (after . ! ?)
+            # But exclude ellipsis (...) as it's often a continuation
+            # Negative lookbehind to exclude cases where period is part of ellipsis
+            (r'(?<!\.)([.!?])\s+([a-z])',
+             "Sentence should start with a capital letter",
+             lambda m, t: f'{m.group(1)} {m.group(2).upper()}'),
+            
+            # First word of text should be capitalized
+            # This will be checked separately in the line checking logic
+            
+            # Days of the week not capitalized
+            (r'\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b',
+             "Days of the week should be capitalized",
+             lambda m, t: m.group(1).capitalize()),
+            
+            # Months not capitalized (excluding May - handled separately)
+            (r'\b(january|february|march|april|june|july|august|september|october|november|december)\b',
+             "Months should be capitalized",
+             lambda m, t: m.group(1).capitalize()),
+            
+            # May (the month) - only when in month context
+            # Match "may" when preceded by: in, on, during, of, next, last, this, until, by, from, since
+            # Or when followed by day numbers (1-31) or ordinals (1st, 2nd, etc.)
+            (r'\b(in|on|during|of|next|last|this|until|by|from|since)\s+(may)\b',
+             "Months should be capitalized",
+             lambda m, t: f"{m.group(1)} {m.group(2).capitalize()}"),
+            
+            # May followed by day number
+            (r'\b(may)\s+(\d{1,2}(st|nd|rd|th)?)\b',
+             "Months should be capitalized",
+             lambda m, t: f"{m.group(1).capitalize()} {m.group(2)}"),
+            
+            # Common proper nouns - countries (simplified list)
+            (r'\b(america|england|france|germany|spain|italy|china|japan|india|canada|australia|mexico|brazil|russia)\b',
+             "Country names should be capitalized",
+             lambda m, t: m.group(1).capitalize()),
+            
+            # I should always be capitalized when used as pronoun
+            (r'\b(i)\s+(am|was|will|would|should|could|can|have|had|do|did|think|feel|see|know|want|need|like|love|hate|believe)\b',
+             "The pronoun 'I' should always be capitalized",
+             lambda m, t: f"I {m.group(2)}"),
+            
+            # Common title case issues - titles/headings
+            # Skip for now as it's context-dependent
+        ]
+        
+        # Common abbreviations that end with period but don't end a sentence
+        self.abbreviations = {
+            'a.m.', 'p.m.', 'e.g.', 'i.e.', 'dr.', 'mr.', 'mrs.', 'ms.',
+            'sr.', 'jr.', 'prof.', 'vs.', 'etc.', 'st.', 'no.', 'inc.',
+            'corp.', 'ltd.', 'co.', 'ave.', 'blvd.', 'dept.', 'est.',
+            'approx.', 'viz.', 'cf.', 'n.b.', 'p.s.', 'a.k.a.',
+            'u.s.', 'u.k.', 'u.n.', 'u.s.a.', 'ph.d.', 'b.a.', 'm.a.',
+            'b.s.', 'm.s.', 'd.c.', 'ft.', 'in.', 'lb.', 'oz.', 'vol.'
+        }
+        
+        # Common irregular verbs for tense consistency checking
+        # Format: (present, past, past_participle)
+        self.irregular_verbs = {
+            'am': ('am', 'was', 'been'),
+            'is': ('is', 'was', 'been'),
+            'are': ('are', 'were', 'been'),
+            'go': ('go', 'went', 'gone'),
+            'went': ('go', 'went', 'gone'),
+            'do': ('do', 'did', 'done'),
+            'did': ('do', 'did', 'done'),
+            'have': ('have', 'had', 'had'),
+            'had': ('have', 'had', 'had'),
+            'say': ('say', 'said', 'said'),
+            'said': ('say', 'said', 'said'),
+            'get': ('get', 'got', 'gotten'),
+            'got': ('get', 'got', 'gotten'),
+            'make': ('make', 'made', 'made'),
+            'made': ('make', 'made', 'made'),
+            'see': ('see', 'saw', 'seen'),
+            'saw': ('see', 'saw', 'seen'),
+            'come': ('come', 'came', 'come'),
+            'came': ('come', 'came', 'come'),
+            'take': ('take', 'took', 'taken'),
+            'took': ('take', 'took', 'taken'),
+            'know': ('know', 'knew', 'known'),
+            'knew': ('know', 'knew', 'known'),
+            'think': ('think', 'thought', 'thought'),
+            'thought': ('think', 'thought', 'thought'),
+            'give': ('give', 'gave', 'given'),
+            'gave': ('give', 'gave', 'given'),
+            'find': ('find', 'found', 'found'),
+            'found': ('find', 'found', 'found'),
+            'tell': ('tell', 'told', 'told'),
+            'told': ('tell', 'told', 'told'),
+            'become': ('become', 'became', 'become'),
+            'became': ('become', 'became', 'become'),
+            'leave': ('leave', 'left', 'left'),
+            'left': ('leave', 'left', 'left'),
+            'feel': ('feel', 'felt', 'felt'),
+            'felt': ('feel', 'felt', 'felt'),
+            'bring': ('bring', 'brought', 'brought'),
+            'brought': ('bring', 'brought', 'brought'),
+            'begin': ('begin', 'began', 'begun'),
+            'began': ('begin', 'began', 'begun'),
+            'keep': ('keep', 'kept', 'kept'),
+            'kept': ('keep', 'kept', 'kept'),
+            'hold': ('hold', 'held', 'held'),
+            'held': ('hold', 'held', 'held'),
+            'write': ('write', 'wrote', 'written'),
+            'wrote': ('write', 'wrote', 'written'),
+            'stand': ('stand', 'stood', 'stood'),
+            'stood': ('stand', 'stood', 'stood'),
+            'hear': ('hear', 'heard', 'heard'),
+            'heard': ('hear', 'heard', 'heard'),
+            'let': ('let', 'let', 'let'),
+            'mean': ('mean', 'meant', 'meant'),
+            'meant': ('mean', 'meant', 'meant'),
+            'set': ('set', 'set', 'set'),
+            'meet': ('meet', 'met', 'met'),
+            'met': ('meet', 'met', 'met'),
+            'run': ('run', 'ran', 'run'),
+            'ran': ('run', 'ran', 'run'),
+            'pay': ('pay', 'paid', 'paid'),
+            'paid': ('pay', 'paid', 'paid'),
+            'sit': ('sit', 'sat', 'sat'),
+            'sat': ('sit', 'sat', 'sat'),
+            'speak': ('speak', 'spoke', 'spoken'),
+            'spoke': ('speak', 'spoke', 'spoken'),
+            'lie': ('lie', 'lay', 'lain'),
+            'lay': ('lay', 'laid', 'laid'),
+            'laid': ('lay', 'laid', 'laid'),
+            'lead': ('lead', 'led', 'led'),
+            'led': ('lead', 'led', 'led'),
+            'read': ('read', 'read', 'read'),
+            'grow': ('grow', 'grew', 'grown'),
+            'grew': ('grow', 'grew', 'grown'),
+            'lose': ('lose', 'lost', 'lost'),
+            'lost': ('lose', 'lost', 'lost'),
+            'fall': ('fall', 'fell', 'fallen'),
+            'fell': ('fall', 'fell', 'fallen'),
+            'send': ('send', 'sent', 'sent'),
+            'sent': ('send', 'sent', 'sent'),
+            'build': ('build', 'built', 'built'),
+            'built': ('build', 'built', 'built'),
+            'understand': ('understand', 'understood', 'understood'),
+            'understood': ('understand', 'understood', 'understood'),
+            'draw': ('draw', 'drew', 'drawn'),
+            'drew': ('draw', 'drew', 'drawn'),
+            'break': ('break', 'broke', 'broken'),
+            'broke': ('break', 'broke', 'broken'),
+            'spend': ('spend', 'spent', 'spent'),
+            'spent': ('spend', 'spent', 'spent'),
+            'cut': ('cut', 'cut', 'cut'),
+            'rise': ('rise', 'rose', 'risen'),
+            'rose': ('rise', 'rose', 'risen'),
+            'drive': ('drive', 'drove', 'driven'),
+            'drove': ('drive', 'drove', 'driven'),
+            'buy': ('buy', 'bought', 'bought'),
+            'bought': ('buy', 'bought', 'bought'),
+            'wear': ('wear', 'wore', 'worn'),
+            'wore': ('wear', 'wore', 'worn'),
+            'choose': ('choose', 'chose', 'chosen'),
+            'chose': ('choose', 'chose', 'chosen'),
+            'seek': ('seek', 'sought', 'sought'),
+            'sought': ('seek', 'sought', 'sought'),
+            'throw': ('throw', 'threw', 'thrown'),
+            'threw': ('throw', 'threw', 'thrown'),
+            'catch': ('catch', 'caught', 'caught'),
+            'caught': ('catch', 'caught', 'caught'),
+            'deal': ('deal', 'dealt', 'dealt'),
+            'dealt': ('deal', 'dealt', 'dealt'),
+            'win': ('win', 'won', 'won'),
+            'won': ('win', 'won', 'won'),
+            'forget': ('forget', 'forgot', 'forgotten'),
+            'forgot': ('forget', 'forgot', 'forgotten'),
+            'shake': ('shake', 'shook', 'shaken'),
+            'shook': ('shake', 'shook', 'shaken'),
+            'hang': ('hang', 'hung', 'hung'),
+            'hung': ('hang', 'hung', 'hung'),
+            'strike': ('strike', 'struck', 'struck'),
+            'struck': ('strike', 'struck', 'struck'),
+            'ride': ('ride', 'rode', 'ridden'),
+            'rode': ('ride', 'rode', 'ridden'),
+            'sing': ('sing', 'sang', 'sung'),
+            'sang': ('sing', 'sang', 'sung'),
+            'swim': ('swim', 'swam', 'swum'),
+            'swam': ('swim', 'swam', 'swum'),
+        }
+        
+        # Tense consistency patterns
+        # These patterns detect common tense shifts within a sentence
+        self.tense_patterns = [
+            # Present tense followed by past tense in same sentence (without time indicators)
+            # e.g., "I walk to the store and bought milk" -> should be "I walked to the store and bought milk"
+            (r'\b(walks?|runs?|goes?|comes?|takes?|makes?|gets?|says?|knows?|thinks?)\s+(to|and|but|then)\s+\w+\s+(walked|ran|went|came|took|made|got|said|knew|thought)\b',
+             "Inconsistent tense: mixing present and past tense",
+             lambda m, t: None),  # This is complex, we'll flag it but not auto-fix
+            
+            # Past tense followed by present tense (e.g., "I walked to the store and buy milk")
+            (r'\b(walked|ran|went|came|took|made|got|said|knew|thought)\s+(to|and|but|then)\s+\w+\s+(walk|run|go|come|take|make|get|say|know|think)s?\b',
+             "Inconsistent tense: mixing past and present tense",
+             lambda m, t: None),
+        ]
+        
+        # Common spelling mistakes: (incorrect, correct)
+        self.common_misspellings = {
+            'recieve': 'receive',
+            'recieved': 'received',
+            'occured': 'occurred',
+            'occuring': 'occurring',
+            'seperate': 'separate',
+            'seperated': 'separated',
+            'definately': 'definitely',
+            'definetly': 'definitely',
+            'accomodate': 'accommodate',
+            'acommodate': 'accommodate',
+            'acheive': 'achieve',
+            'acheived': 'achieved',
+            'beleive': 'believe',
+            'beleived': 'believed',
+            'concious': 'conscious',
+            'consciense': 'conscience',
+            'embarass': 'embarrass',
+            'embarassed': 'embarrassed',
+            'existance': 'existence',
+            'goverment': 'government',
+            'grammer': 'grammar',
+            'harrass': 'harass',
+            'harrassment': 'harassment',
+            'independant': 'independent',
+            'judgement': 'judgment',
+            'liason': 'liaison',
+            'maintainance': 'maintenance',
+            'millenium': 'millennium',
+            'mispell': 'misspell',
+            'mispelled': 'misspelled',
+            'neccessary': 'necessary',
+            'occassion': 'occasion',
+            'occassional': 'occasional',
+            'occured': 'occurred',
+            'occurence': 'occurrence',
+            'persue': 'pursue',
+            'persuit': 'pursuit',
+            'posession': 'possession',
+            'prefered': 'preferred',
+            'prefering': 'preferring',
+            'priviledge': 'privilege',
+            'pronounciation': 'pronunciation',
+            'publically': 'publicly',
+            'reccomend': 'recommend',
+            'recomend': 'recommend',
+            'refered': 'referred',
+            'refering': 'referring',
+            'relevent': 'relevant',
+            'resistence': 'resistance',
+            'rythm': 'rhythm',
+            'succesful': 'successful',
+            'sucess': 'success',
+            'supercede': 'supersede',
+            'suprise': 'surprise',
+            'suprised': 'surprised',
+            'tommorow': 'tomorrow',
+            'truely': 'truly',
+            'untill': 'until',
+            'usefull': 'useful',
+            'wich': 'which',
+            'wierd': 'weird',
+            'writting': 'writing',
+            'writen': 'written',
+            'begining': 'beginning',
+            'comming': 'coming',
+            'desparate': 'desperate',
+            'enviroment': 'environment',
+            'facinating': 'fascinating',
+            'foriegn': 'foreign',
+            'fourty': 'forty',
+            'freind': 'friend',
+            'heigth': 'height',
+            'heros': 'heroes',
+            'imediate': 'immediate',
+            'immediatly': 'immediately',
+            'incidently': 'incidentally',
+            'intresting': 'interesting',
+            'knowlege': 'knowledge',
+            'liesure': 'leisure',
+            'lightening': 'lightning',
+            'noticable': 'noticeable',
+            'occassionally': 'occasionally',
+            'occured': 'occurred',
+            'openning': 'opening',
+            'oppurtunity': 'opportunity',
+            'paralell': 'parallel',
+            'parlament': 'parliament',
+            'peice': 'piece',
+            'perseverence': 'perseverance',
+            'personell': 'personnel',
+            'potatos': 'potatoes',
+            'preceeding': 'preceding',
+            'questionaire': 'questionnaire',
+            'reccomendation': 'recommendation',
+            'rember': 'remember',
+            'remeber': 'remember',
+            'responsability': 'responsibility',
+            'seperately': 'separately',
+            'sieze': 'seize',
+            'similiar': 'similar',
+            'succede': 'succeed',
+            'tomatos': 'tomatoes',
+            'tounge': 'tongue',
+            'transfered': 'transferred',
+            'truley': 'truly',
+            'twelvth': 'twelfth',
+            'unfortunatly': 'unfortunately',
+            'useable': 'usable',
+            'visable': 'visible',
+            'wether': 'whether',
+            'whereever': 'wherever',
+        }
+        
+        # Parallelism/Concision patterns: (pattern, description, fix_function or None)
+        # These patterns detect issues with parallel structure and verbosity
+        self.parallelism_concision_patterns = [
+            # Wordy phrases that can be made more concise
+            (r'\bat the present moment\b', "Wordy: 'at the present moment' can be shortened to 'now'", lambda m, t: "now"),
+            (r'\bin the event of\b', "Wordy: 'in the event of' can be shortened to 'if'", lambda m, t: "if"),
+            (r'\bdue to the fact that\b', "Wordy: 'due to the fact that' can be shortened to 'because'", lambda m, t: "because"),
+            (r'\bin spite of the fact that\b', "Wordy: 'in spite of the fact that' can be shortened to 'although'", lambda m, t: "although"),
+            (r'\buntil such time as\b', "Wordy: 'until such time as' can be shortened to 'until'", lambda m, t: "until"),
+            (r'\bfor the purpose of\b', "Wordy: 'for the purpose of' can be shortened to 'to' or 'for'", lambda m, t: "to"),
+            (r'\bin order to\b', "Wordy: 'in order to' can be shortened to 'to'", lambda m, t: "to"),
+            (r'\bby means of\b', "Wordy: 'by means of' can be shortened to 'by'", lambda m, t: "by"),
+            (r'\bin the near future\b', "Wordy: 'in the near future' can be shortened to 'soon'", lambda m, t: "soon"),
+            (r'\bat this point in time\b', "Wordy: 'at this point in time' can be shortened to 'now'", lambda m, t: "now"),
+            (r'\bprior to\b', "Wordy: 'prior to' can be shortened to 'before'", lambda m, t: "before"),
+            (r'\bsubsequent to\b', "Wordy: 'subsequent to' can be shortened to 'after'", lambda m, t: "after"),
+            (r'\bin the amount of\b', "Wordy: 'in the amount of' can be shortened to 'for'", lambda m, t: "for"),
+            (r'\bhas the ability to\b', "Wordy: 'has the ability to' can be shortened to 'can'", lambda m, t: "can"),
+            (r'\bis able to\b', "Wordy: 'is able to' can be shortened to 'can'", lambda m, t: "can"),
+            (r'\bmake a decision\b', "Wordy: 'make a decision' can be shortened to 'decide'", lambda m, t: "decide"),
+            (r'\bgive consideration to\b', "Wordy: 'give consideration to' can be shortened to 'consider'", lambda m, t: "consider"),
+            (r'\btake into consideration\b', "Wordy: 'take into consideration' can be shortened to 'consider'", lambda m, t: "consider"),
+            (r'\bmake an assumption\b', "Wordy: 'make an assumption' can be shortened to 'assume'", lambda m, t: "assume"),
+            (r'\bcame to a realization\b', "Wordy: 'came to a realization' can be shortened to 'realized'", lambda m, t: "realized"),
+            (r'\breach a conclusion\b', "Wordy: 'reach a conclusion' can be shortened to 'conclude'", lambda m, t: "conclude"),
+            (r'\bput an end to\b', "Wordy: 'put an end to' can be shortened to 'end'", lambda m, t: "end"),
+            (r'\bmake reference to\b', "Wordy: 'make reference to' can be shortened to 'refer to'", lambda m, t: "refer to"),
+            (r'\bfor the reason that\b', "Wordy: 'for the reason that' can be shortened to 'because'", lambda m, t: "because"),
+            (r'\bin the process of\b', "Wordy: 'in the process of' can be shortened to 'during' or remove entirely", lambda m, t: "during"),
+            (r'\bwith the exception of\b', "Wordy: 'with the exception of' can be shortened to 'except'", lambda m, t: "except"),
+            (r'\bin close proximity to\b', "Wordy: 'in close proximity to' can be shortened to 'near'", lambda m, t: "near"),
+            (r'\bon a regular basis\b', "Wordy: 'on a regular basis' can be shortened to 'regularly'", lambda m, t: "regularly"),
+            (r'\bon a daily basis\b', "Wordy: 'on a daily basis' can be shortened to 'daily'", lambda m, t: "daily"),
+            (r'\bat all times\b', "Wordy: 'at all times' can be shortened to 'always'", lambda m, t: "always"),
+            (r'\bin many cases\b', "Wordy: 'in many cases' can be shortened to 'often'", lambda m, t: "often"),
+            (r'\bin most cases\b', "Wordy: 'in most cases' can be shortened to 'usually'", lambda m, t: "usually"),
+            (r'\bat the present time\b', "Wordy: 'at the present time' can be shortened to 'now'", lambda m, t: "now"),
+            (r'\bdespite the fact that\b', "Wordy: 'despite the fact that' can be shortened to 'although'", lambda m, t: "although"),
+            (r'\bthe majority of\b', "Wordy: 'the majority of' can be shortened to 'most'", lambda m, t: "most"),
+            (r'\ba number of\b', "Wordy: 'a number of' can be shortened to 'several' or 'many'", lambda m, t: "several"),
+            (r'\bin the event that\b', "Wordy: 'in the event that' can be shortened to 'if'", lambda m, t: "if"),
+            (r'\bin view of the fact that\b', "Wordy: 'in view of the fact that' can be shortened to 'since'", lambda m, t: "since"),
+            (r'\bon the basis of\b', "Wordy: 'on the basis of' can be shortened to 'based on'", lambda m, t: "based on"),
+            (r'\bwith regard to\b', "Wordy: 'with regard to' can be shortened to 'regarding'", lambda m, t: "regarding"),
+            (r'\bwith reference to\b', "Wordy: 'with reference to' can be shortened to 'about'", lambda m, t: "about"),
+            
+            # Nominalization patterns (verbs turned into nouns - less concise)
+            (r'\bmake\s+an?\s+(analysis|assessment|evaluation|examination|investigation|determination)\s+of\b',
+             "Nominalization: Consider using the verb form instead (e.g., 'analyze' instead of 'make an analysis of')",
+             None),
+            (r'\bconduct\s+an?\s+(analysis|assessment|evaluation|examination|investigation)\s+of\b',
+             "Nominalization: Consider using the verb form instead (e.g., 'analyze' instead of 'conduct an analysis of')",
+             None),
+            (r'\bprovide\s+an?\s+(explanation|description|illustration)\s+of\b',
+             "Nominalization: Consider using the verb form instead (e.g., 'explain' instead of 'provide an explanation of')",
+             None),
+            
+            # Redundant intensifiers
+            (r'\bvery\s+unique\b', "Redundant: 'unique' means one of a kind, so 'very unique' is redundant. Use 'unique' alone", lambda m, t: "unique"),
+            (r'\bvery\s+perfect\b', "Redundant: 'perfect' is absolute, so 'very perfect' is redundant. Use 'perfect' alone", lambda m, t: "perfect"),
+            (r'\bvery\s+essential\b', "Redundant: 'essential' is absolute, so 'very essential' is redundant. Use 'essential' alone", lambda m, t: "essential"),
+            (r'\bvery\s+impossible\b', "Redundant: 'impossible' is absolute, so 'very impossible' is redundant. Use 'impossible' alone", lambda m, t: "impossible"),
+            (r'\bcompletely\s+full\b', "Redundant: 'full' is absolute, so 'completely full' is redundant. Use 'full' alone", lambda m, t: "full"),
+            (r'\bcompletely\s+empty\b', "Redundant: 'empty' is absolute, so 'completely empty' is redundant. Use 'empty' alone", lambda m, t: "empty"),
+            (r'\bcompletely\s+destroyed\b', "Redundant: 'destroyed' is absolute, so 'completely destroyed' is redundant. Use 'destroyed' alone", lambda m, t: "destroyed"),
+            (r'\babsolutely\s+certain\b', "Redundant: 'certain' is absolute, so 'absolutely certain' is redundant. Use 'certain' alone", lambda m, t: "certain"),
+            (r'\bextremely\s+crucial\b', "Redundant: 'crucial' is already strong, so 'extremely crucial' is redundant. Use 'crucial' alone", lambda m, t: "crucial"),
+        ]
+        
+        # Sentence starters that often indicate intentional passive voice
+        self.intentional_passive_starters = [
+            'it was', 'it is', 'it has been', 'it had been', 'it will be',
+            'there was', 'there is', 'there has been', 'there had been', 'there will be'
+        ]
+        
+        # Words that suggest technical/academic context where passive voice is common
+        self.passive_voice_context_words = [
+            'framework', 'method', 'methodology', 'algorithm', 'system',
+            'approach', 'technique', 'process', 'procedure', 'experiment',
+            'study', 'research', 'analysis', 'model', 'protocol'
+        ]
+    
+    def _detect_passive_voice_spacy(self, text: str, line_number: int) -> List[GrammarIssue]:
+        """
+        Detect true passive voice using spaCy dependency parsing.
+        
+        This method uses linguistic analysis to identify actual passive voice constructions
+        (e.g., "was written", "were marketed") and skips false positives like linking verbs
+        with adjectives (e.g., "is nuanced", "is layered").
+        
+        Args:
+            text: The text to analyze
+            line_number: The line number for issue reporting
+            
+        Returns:
+            List of GrammarIssue objects for detected passive voice
+        """
+        if not SPACY_AVAILABLE or nlp is None:
+            return []
+        
+        issues = []
+        
+        try:
+            doc = nlp(text)
+            
+            for sent in doc.sents:
+                sentence_text = sent.text.strip()
+                sentence_lower = sentence_text.lower()
+                
+                # Check if sentence starts with intentional passive patterns
+                skip_sentence = False
+                for starter in self.intentional_passive_starters:
+                    if sentence_lower.startswith(starter):
+                        skip_sentence = True
+                        break
+                
+                if skip_sentence:
+                    continue
+                
+                # Check if sentence contains technical/academic context words
+                sentence_words = set(sentence_lower.split())
+                if any(word in sentence_words for word in self.passive_voice_context_words):
+                    continue
+                
+                # Skip short sentences (< 8 words) which might be stylistic
+                if len(sentence_text.split()) < 8:
+                    continue
+                
+                # Look for passive voice using dependency parsing
+                for token in sent:
+                    # Look for passive auxiliary (auxpass): was, were, is, are, been, being
+                    if token.dep_ == "auxpass":
+                        verb = token.head
+                        passive_phrase = f"{token.text} {verb.text}"
+                        
+                        # Check if there's a clear agent (by X)
+                        has_agent = False
+                        agent_text = None
+                        for child in verb.children:
+                            if child.dep_ == "agent":  # "by" phrase
+                                has_agent = True
+                                agent_text = child.text
+                                break
+                        
+                        # Skip if there's a clear agent (intentional passive)
+                        if has_agent:
+                            continue
+                        
+                        # Generate dynamic fix suggestion based on the verb
+                        verb_lemma = verb.lemma_
+                        
+                        if agent_text:
+                            fix_suggestion = (
+                                f"Rewrite as active voice (e.g., move '{agent_text}' to subject position: "
+                                f"'{agent_text} {verb_lemma}s ...')"
+                            )
+                        else:
+                            fix_suggestion = (
+                                f"Rewrite using active voice (identify who performs the action of '{verb_lemma}' "
+                                f"and make them the subject)"
+                            )
+                        
+                        issue = GrammarIssue(
+                            line_number=line_number,
+                            sentence_number=1,
+                            original_text=text,
+                            problem=f"Passive voice detected: '{passive_phrase}' - Consider using active voice for clarity and directness",
+                            fix=fix_suggestion,
+                            category='parallelism_concision',
+                            confidence=0.75,
+                            corrected_sentence=None
+                        )
+                        
+                        issues.append(issue)
+        
+        except Exception as e:
+            # If spaCy processing fails, silently skip
+            print(f"Warning: spaCy processing failed for line {line_number}: {e}")
+            pass
+        
+        return issues
+    
+    def _is_abbreviation_before(self, text: str, match_start: int) -> bool:
+        """
+        Check if a period before the match position belongs to a known abbreviation or URL.
+        
+        Args:
+            text: The full text content
+            match_start: The starting position of the match
+            
+        Returns:
+            True if the period is part of an abbreviation or URL, False otherwise
+        """
+        # Look back up to 50 characters to check for abbreviations
+        look_back = 50
+        start = max(0, match_start - look_back)
+        context_before = text[start:match_start + 1].lower()
+        
+        # Look ahead up to 20 characters to check for URLs (in case period comes before URL)
+        look_ahead = 20
+        end = min(len(text), match_start + look_ahead)
+        context_after = text[match_start:end].lower()
+        
+        # Check for URLs starting after the period (e.g., "2024. https://")
+        url_patterns = ['http://', 'https://', 'www.']
+        for pattern in url_patterns:
+            if pattern in context_after:
+                return True
+        
+        # Check for URLs in the context before (e.g., within ".com/ " or ".org/ ")
+        url_domain_patterns = ['.com/', '.org/', '.edu/', '.gov/', '.net/', '.io/', '.co/']
+        for pattern in url_domain_patterns:
+            if pattern in context_before:
+                return True
+        
+        # Check if any abbreviation appears just before the match
+        for abbr in self.abbreviations:
+            if context_before.endswith(abbr):
+                return True
+        
+        return False
     
     async def check_document(
         self, 
         document_data: DocumentData, 
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        enabled_categories: Optional[List[str]] = None
     ) -> List[GrammarIssue]:
         """
-        Check entire document for redundant phrases, awkward phrasing, punctuation, and grammar
+        Check entire document for redundant phrases, awkward phrasing, punctuation, grammar, and spelling
         
         Strategy: Check at LINE level, scanning for predefined patterns of
-        redundant phrases, awkward phrasing, punctuation errors, and grammar mistakes.
+        redundant phrases, awkward phrasing, punctuation errors, grammar mistakes, and spelling errors.
         
         Args:
             document_data: Parsed document data
             progress_callback: Optional callback for progress updates
                               Signature: async def callback(line_num: int, total_lines: int, issues_found: int)
+            enabled_categories: Optional list of category names to check (e.g., ['redundancy', 'grammar'])
+                              If None, all categories are checked
             
         Returns:
             List of grammar issues found
         """
+        # Log enabled categories for debugging
+        if enabled_categories is None:
+            print(f"[GrammarChecker] Checking ALL categories (no filter specified)")
+        else:
+            print(f"[GrammarChecker] Checking ONLY these categories: {enabled_categories}")
+        
         all_issues = []
         total_lines = len(document_data.lines)
         
@@ -458,7 +1058,8 @@ class GrammarChecker:
             # This handles cases where quotes span multiple sentences on the same line
             line_issues = await self._check_line_content(
                 full_line_content,
-                line.line_number
+                line.line_number,
+                enabled_categories
             )
             
             all_issues.extend(line_issues)
@@ -482,14 +1083,16 @@ class GrammarChecker:
     async def _check_line_content(
         self,
         line_content: str,
-        line_number: int
+        line_number: int,
+        enabled_categories: Optional[List[str]] = None
     ) -> List[GrammarIssue]:
         """
-        Check an entire line for redundant phrases, awkward phrasing, punctuation, and grammar.
+        Check an entire line for redundant phrases, awkward phrasing, punctuation, grammar, and spelling.
         
         Args:
             line_content: The full line content (all sentences combined)
             line_number: Line number in the document
+            enabled_categories: Optional list of category names to check
             
         Returns:
             List of grammar issues found in the line
@@ -498,155 +1101,387 @@ class GrammarChecker:
             issues = []
             line_lower = line_content.lower()
             
+            # Helper function to check if a category is enabled
+            def is_category_enabled(category: str) -> bool:
+                if enabled_categories is None:
+                    return True  # All categories enabled by default
+                return category in enabled_categories
+            
             # Check for redundant phrases
-            for redundant_phrase, correction in self.redundant_phrases.items():
-                # Use word boundaries to avoid partial matches
-                pattern = r'\b' + re.escape(redundant_phrase) + r'\b'
-                matches = list(re.finditer(pattern, line_lower, re.IGNORECASE))
-                
-                for match in matches:
-                    start_pos = match.start()
-                    end_pos = match.end()
-                    original_text = line_content[start_pos:end_pos]
-                
-                    # Preserve the capitalization of the original text
-                    if original_text[0].isupper():
-                        suggested_fix = correction.capitalize()
-                    else:
-                        suggested_fix = correction
-                
-                    # Create a corrected version of the line
-                    corrected_line = (
-                        line_content[:start_pos] + 
-                        suggested_fix + 
-                        line_content[end_pos:]
-                    )
-                
-                    issue = GrammarIssue(
-                line_number=line_number,
-                        sentence_number=1,
-                original_text=line_content,
-                        problem=f"Redundant phrase: '{original_text}' can be simplified to '{suggested_fix}'",
-                        fix=f"'{original_text}' → '{suggested_fix}'",
-                        category='redundancy',
-                        confidence=0.95,
-                        corrected_sentence=corrected_line
-                    )
-                
-                    issues.append(issue)
+            if is_category_enabled('redundancy'):
+                for redundant_phrase, correction in self.redundant_phrases.items():
+                    # Use word boundaries to avoid partial matches
+                    pattern = r'\b' + re.escape(redundant_phrase) + r'\b'
+                    matches = list(re.finditer(pattern, line_lower, re.IGNORECASE))
+                    
+                    for match in matches:
+                        start_pos = match.start()
+                        end_pos = match.end()
+                        original_text = line_content[start_pos:end_pos]
+                    
+                        # Preserve the capitalization of the original text
+                        if original_text[0].isupper():
+                            suggested_fix = correction.capitalize()
+                        else:
+                            suggested_fix = correction
+                    
+                        # Create a corrected version of the line
+                        corrected_line = (
+                            line_content[:start_pos] + 
+                            suggested_fix + 
+                            line_content[end_pos:]
+                        )
+                    
+                        issue = GrammarIssue(
+                            line_number=line_number,
+                            sentence_number=1,
+                            original_text=line_content,
+                            problem=f"Redundant phrase: '{original_text}' can be simplified to '{suggested_fix}'",
+                            fix=f"'{original_text}' → '{suggested_fix}'",
+                            category='redundancy',
+                            confidence=0.95,
+                            corrected_sentence=corrected_line
+                        )
+                    
+                        issues.append(issue)
             
             # Check for awkward phrasing
-            for awkward_phrase, correction in self.awkward_phrases.items():
-                # Use word boundaries to avoid partial matches
-                pattern = r'\b' + re.escape(awkward_phrase) + r'\b'
-                matches = list(re.finditer(pattern, line_lower, re.IGNORECASE))
-                
-                for match in matches:
-                    start_pos = match.start()
-                    end_pos = match.end()
-                    original_text = line_content[start_pos:end_pos]
-                
-                    # Preserve the capitalization of the original text
-                    if original_text[0].isupper():
-                        suggested_fix = correction.capitalize()
-                    else:
-                        suggested_fix = correction
-                
-                    # Create a corrected version of the line
-                    corrected_line = (
-                        line_content[:start_pos] + 
-                        suggested_fix + 
-                        line_content[end_pos:]
-                    )
-                
-                    issue = GrammarIssue(
-                        line_number=line_number,
-                        sentence_number=1,
-                        original_text=line_content,
-                        problem=f"Awkward phrasing: '{original_text}' can be simplified to '{suggested_fix}'",
-                        fix=f"'{original_text}' → '{suggested_fix}'",
-                        category='awkward_phrasing',
-                        confidence=0.90,
-                        corrected_sentence=corrected_line
-                    )
-                
-                    issues.append(issue)
+            if is_category_enabled('awkward_phrasing'):
+                for awkward_phrase, correction in self.awkward_phrases.items():
+                    # Use word boundaries to avoid partial matches
+                    pattern = r'\b' + re.escape(awkward_phrase) + r'\b'
+                    matches = list(re.finditer(pattern, line_lower, re.IGNORECASE))
+                    
+                    for match in matches:
+                        start_pos = match.start()
+                        end_pos = match.end()
+                        original_text = line_content[start_pos:end_pos]
+                    
+                        # Preserve the capitalization of the original text
+                        if original_text[0].isupper():
+                            suggested_fix = correction.capitalize()
+                        else:
+                            suggested_fix = correction
+                    
+                        # Create a corrected version of the line
+                        corrected_line = (
+                            line_content[:start_pos] + 
+                            suggested_fix + 
+                            line_content[end_pos:]
+                        )
+                    
+                        issue = GrammarIssue(
+                            line_number=line_number,
+                            sentence_number=1,
+                            original_text=line_content,
+                            problem=f"Awkward phrasing: '{original_text}' can be simplified to '{suggested_fix}'",
+                            fix=f"'{original_text}' → '{suggested_fix}'",
+                            category='awkward_phrasing',
+                            confidence=0.90,
+                            corrected_sentence=corrected_line
+                        )
+                    
+                        issues.append(issue)
             
             # Check for punctuation issues
-            for pattern, description, fix_func in self.punctuation_patterns:
-                matches = list(re.finditer(pattern, line_content))
-                
-            for match in matches:
-                    start_pos = match.start()
-                    end_pos = match.end()
-                    original_text = line_content[start_pos:end_pos]
-                
-                    # Apply the fix function
-                    suggested_fix = fix_func(match, line_content)
-                
-                    # Skip if no change
-                    if original_text == suggested_fix:
-                        continue
-               
-                    # Create a corrected version of the line
-                    corrected_line = (
-                        line_content[:start_pos] + 
-                        suggested_fix + 
-                        line_content[end_pos:]
-                    )
-                
-                    issue = GrammarIssue(
-                        line_number=line_number,
-                        sentence_number=1,
-                        original_text=line_content,
-                        problem=f"{description}: '{original_text}' should be '{suggested_fix}'",
-                        fix=f"'{original_text}' → '{suggested_fix}'",
-                        category='punctuation',
-                        confidence=0.85,
-                        corrected_sentence=corrected_line
-                    )
-                
-                    issues.append(issue)
+            if is_category_enabled('punctuation'):
+                for pattern, description, fix_func in self.punctuation_patterns:
+                    matches = list(re.finditer(pattern, line_content))
+                    
+                    for match in matches:
+                        start_pos = match.start()
+                        end_pos = match.end()
+                        original_text = line_content[start_pos:end_pos]
+                    
+                        # Apply the fix function
+                        suggested_fix = fix_func(match, line_content)
+                    
+                        # Skip if no change
+                        if original_text == suggested_fix:
+                            continue
+                   
+                        # Create a corrected version of the line
+                        corrected_line = (
+                            line_content[:start_pos] + 
+                            suggested_fix + 
+                            line_content[end_pos:]
+                        )
+                    
+                        issue = GrammarIssue(
+                            line_number=line_number,
+                            sentence_number=1,
+                            original_text=line_content,
+                            problem=f"{description}: '{original_text}' should be '{suggested_fix}'",
+                            fix=f"'{original_text}' → '{suggested_fix}'",
+                            category='punctuation',
+                            confidence=0.85,
+                            corrected_sentence=corrected_line
+                        )
+                    
+                        issues.append(issue)
             
             # Check for grammar issues
-            for pattern, description, fix_func in self.grammar_patterns:
-                matches = list(re.finditer(pattern, line_content, re.IGNORECASE))
+            if is_category_enabled('grammar'):
+                for pattern, description, fix_func in self.grammar_patterns:
+                    matches = list(re.finditer(pattern, line_content, re.IGNORECASE))
+                    
+                    for match in matches:
+                        start_pos = match.start()
+                        end_pos = match.end()
+                        original_text = line_content[start_pos:end_pos]
+                    
+                        # Apply the fix function
+                        try:
+                            suggested_fix = fix_func(match, line_content)
+                        except Exception:
+                            # If fix function fails, skip this match
+                            continue
                 
-                for match in matches:
-                    start_pos = match.start()
-                    end_pos = match.end()
-                    original_text = line_content[start_pos:end_pos]
+                        # Skip if no change
+                        if original_text == suggested_fix:
+                            continue
                 
-                    # Apply the fix function
-                    try:
-                        suggested_fix = fix_func(match, line_content)
-                    except Exception:
-                        # If fix function fails, skip this match
-                        continue
+                        # Create a corrected version of the line
+                        corrected_line = (
+                            line_content[:start_pos] + 
+                            suggested_fix + 
+                            line_content[end_pos:]
+                        )
+                    
+                        issue = GrammarIssue(
+                            line_number=line_number,
+                            sentence_number=1,
+                            original_text=line_content,
+                            problem=f"{description}: '{original_text}' should be '{suggested_fix}'",
+                            fix=f"'{original_text}' → '{suggested_fix}'",
+                            category='grammar',
+                            confidence=0.80,
+                            corrected_sentence=corrected_line
+                        )
+                    
+                        issues.append(issue)
             
-                    # Skip if no change
-                    if original_text == suggested_fix:
-                        continue
+            # Check for dialogue issues
+            if is_category_enabled('dialogue'):
+                for pattern, description, fix_func in self.dialogue_patterns:
+                    matches = list(re.finditer(pattern, line_content, re.IGNORECASE))
+                    
+                    for match in matches:
+                        start_pos = match.start()
+                        end_pos = match.end()
+                        original_text = line_content[start_pos:end_pos]
+                    
+                        # Apply the fix function
+                        try:
+                            suggested_fix = fix_func(match, line_content)
+                        except Exception:
+                            # If fix function fails, skip this match
+                            continue
+                
+                        # Skip if no change
+                        if original_text == suggested_fix:
+                            continue
+                
+                        # Create a corrected version of the line
+                        corrected_line = (
+                            line_content[:start_pos] + 
+                            suggested_fix + 
+                            line_content[end_pos:]
+                        )
+                    
+                        issue = GrammarIssue(
+                            line_number=line_number,
+                            sentence_number=1,
+                            original_text=line_content,
+                            problem=f"{description}: '{original_text}' should be '{suggested_fix}'",
+                            fix=f"'{original_text}' → '{suggested_fix}'",
+                            category='dialogue',
+                            confidence=0.85,
+                            corrected_sentence=corrected_line
+                        )
+                    
+                        issues.append(issue)
             
-                    # Create a corrected version of the line
-                    corrected_line = (
-                        line_content[:start_pos] + 
-                        suggested_fix + 
-                        line_content[end_pos:]
-                    )
+            # Check for capitalisation issues
+            if is_category_enabled('capitalisation'):
+                for pattern, description, fix_func in self.capitalisation_patterns:
+                    matches = list(re.finditer(pattern, line_content))
+                    
+                    for match in matches:
+                        start_pos = match.start()
+                        end_pos = match.end()
+                        original_text = line_content[start_pos:end_pos]
+                        
+                        # Skip if this is after an abbreviation (e.g., "a.m. on" should not flag)
+                        # Only check for sentence-start capitalization pattern
+                        if "Sentence should start with a capital letter" in description:
+                            if self._is_abbreviation_before(line_content, start_pos):
+                                continue
+                    
+                        # Apply the fix function
+                        try:
+                            suggested_fix = fix_func(match, line_content)
+                        except Exception:
+                            # If fix function fails, skip this match
+                            continue
                 
-                    issue = GrammarIssue(
-                line_number=line_number,
-                        sentence_number=1,
-                        original_text=line_content,
-                        problem=f"{description}: '{original_text}' should be '{suggested_fix}'",
-                        fix=f"'{original_text}' → '{suggested_fix}'",
-                        category='grammar',
-                        confidence=0.80,
-                        corrected_sentence=corrected_line
-                    )
+                        # Skip if no change
+                        if original_text == suggested_fix:
+                            continue
                 
-                    issues.append(issue)
+                        # Create a corrected version of the line
+                        corrected_line = (
+                            line_content[:start_pos] + 
+                            suggested_fix + 
+                            line_content[end_pos:]
+                        )
+                    
+                        issue = GrammarIssue(
+                            line_number=line_number,
+                            sentence_number=1,
+                            original_text=line_content,
+                            problem=f"{description}: '{original_text}' should be '{suggested_fix}'",
+                            fix=f"'{original_text}' → '{suggested_fix}'",
+                            category='capitalisation',
+                            confidence=0.90,
+                            corrected_sentence=corrected_line
+                        )
+                    
+                        issues.append(issue)
+            
+            # Check for tense consistency issues
+            if is_category_enabled('tense_consistency'):
+                for pattern, description, fix_func in self.tense_patterns:
+                    matches = list(re.finditer(pattern, line_content, re.IGNORECASE))
+                    
+                    for match in matches:
+                        start_pos = match.start()
+                        end_pos = match.end()
+                        original_text = line_content[start_pos:end_pos]
+                        
+                        # For tense issues, we flag them but don't auto-fix (too complex)
+                        # Instead, we provide guidance in the problem description
+                        suggested_fix = "Review and correct tense usage"
+                        
+                        issue = GrammarIssue(
+                            line_number=line_number,
+                            sentence_number=1,
+                            original_text=line_content,
+                            problem=f"{description} in: '{original_text}'. Ensure all verbs use consistent tense (either all present or all past).",
+                            fix=suggested_fix,
+                            category='tense_consistency',
+                            confidence=0.75,
+                            corrected_sentence=None  # We don't auto-correct tense issues
+                        )
+                        
+                        issues.append(issue)
+            
+            # Check for spelling issues
+            if is_category_enabled('spelling'):
+                line_lower = line_content.lower()
+                for misspelling, correction in self.common_misspellings.items():
+                    # Use word boundaries to avoid partial matches
+                    pattern = r'\b' + re.escape(misspelling) + r'\b'
+                    matches = list(re.finditer(pattern, line_lower, re.IGNORECASE))
+                    
+                    for match in matches:
+                        start_pos = match.start()
+                        end_pos = match.end()
+                        original_text = line_content[start_pos:end_pos]
+                        
+                        # Preserve the capitalization of the original text
+                        if original_text[0].isupper():
+                            suggested_fix = correction.capitalize()
+                        elif original_text.isupper():
+                            suggested_fix = correction.upper()
+                        else:
+                            suggested_fix = correction
+                        
+                        # Create a corrected version of the line
+                        corrected_line = (
+                            line_content[:start_pos] + 
+                            suggested_fix + 
+                            line_content[end_pos:]
+                        )
+                        
+                        issue = GrammarIssue(
+                            line_number=line_number,
+                            sentence_number=1,
+                            original_text=line_content,
+                            problem=f"Spelling error: '{original_text}' should be '{suggested_fix}'",
+                            fix=f"'{original_text}' → '{suggested_fix}'",
+                            category='spelling',
+                            confidence=0.95,
+                            corrected_sentence=corrected_line
+                        )
+                        
+                        issues.append(issue)
+            
+            # ========================================================================
+            # PARALLELISM/CONCISION CHECKING - EXPERIMENTAL FEATURE
+            # ========================================================================
+            # Check for parallelism/concision issues (EXPERIMENTAL - may produce false positives)
+            if is_category_enabled('parallelism_concision'):
+                for pattern, description, fix_func in self.parallelism_concision_patterns:
+                    matches = list(re.finditer(pattern, line_content, re.IGNORECASE))
+                    
+                    for match in matches:
+                        start_pos = match.start()
+                        end_pos = match.end()
+                        original_text = line_content[start_pos:end_pos]
+                        
+                        # If there's a fix function, apply it; otherwise just flag the issue
+                        if fix_func is not None:
+                            try:
+                                suggested_fix = fix_func(match, line_content)
+                            except Exception:
+                                # If fix function fails, skip this match
+                                continue
+                            
+                            # Skip if no change
+                            if original_text.lower() == suggested_fix.lower():
+                                continue
+                            
+                            # Preserve the capitalization of the original text
+                            if original_text[0].isupper():
+                                suggested_fix = suggested_fix.capitalize()
+                            
+                            # Create a corrected version of the line
+                            corrected_line = (
+                                line_content[:start_pos] + 
+                                suggested_fix + 
+                                line_content[end_pos:]
+                            )
+                            
+                            issue = GrammarIssue(
+                                line_number=line_number,
+                                sentence_number=1,
+                                original_text=line_content,
+                                problem=f"{description}",
+                                fix=f"'{original_text}' → '{suggested_fix}'",
+                                category='parallelism_concision',
+                                confidence=0.85,
+                                corrected_sentence=corrected_line
+                            )
+                        else:
+                            # No auto-fix available, just flag the issue
+                            issue = GrammarIssue(
+                                line_number=line_number,
+                                sentence_number=1,
+                                original_text=line_content,
+                                problem=f"{description}: '{original_text}'",
+                                fix="Review and revise for better clarity and conciseness",
+                                category='parallelism_concision',
+                                confidence=0.75,
+                                corrected_sentence=None
+                            )
+                        
+                        issues.append(issue)
+                
+                # Check for passive voice using spaCy (linguistic analysis)
+                # This detects true passive voice only and generates context-specific fixes
+                passive_issues = self._detect_passive_voice_spacy(line_content, line_number)
+                issues.extend(passive_issues)
             
             return issues
             
@@ -678,6 +1513,18 @@ class GrammarChecker:
                 seen.add(key)
         
         return merged
+    
+    def get_available_categories(self) -> List[Dict[str, Any]]:
+        """
+        Get list of available grammar checking categories
+        
+        Returns:
+            List of dictionaries with category id and display name
+        """
+        return [
+            {'id': category_id, 'name': category_name}
+            for category_id, category_name in self.categories.items()
+        ]
     
     def get_issues_summary(self, issues: List[GrammarIssue]) -> Dict[str, Any]:
         """

@@ -62,7 +62,8 @@ api.interceptors.response.use(
 export const uploadDocument = async (
   file: File,
   outputFilename?: string,
-  outputFormat: OutputFormatEnum = OutputFormatEnum.DOCX
+  outputFormat: OutputFormatEnum = OutputFormatEnum.DOCX,
+  categories?: string[]
 ): Promise<UploadResponse> => {
   const formData = new FormData();
   formData.append('file', file);
@@ -72,6 +73,11 @@ export const uploadDocument = async (
   }
   
   formData.append('output_format', outputFormat);
+  
+  // Add categories as comma-separated string if provided
+  if (categories && categories.length > 0) {
+    formData.append('categories', categories.join(','));
+  }
 
   try {
     const response: AxiosResponse<UploadResponse> = await uploadApi.post('/upload', formData);
@@ -222,4 +228,5 @@ export const connectWebSocket = (
   return ws;
 };
 
+export const apiClient = api;
 export default api;

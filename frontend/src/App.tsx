@@ -40,10 +40,12 @@ const App: React.FC = () => {
   const handleFileUpload = useCallback(async (
     file: File, 
     outputFilename: string, 
-    outputFormat: OutputFormatEnum
+    outputFormat: OutputFormatEnum,
+    categories: string[]
   ) => {
     try {
       console.log('Starting file upload:', file.name);
+      console.log('Selected categories:', categories);
       
       setAppState(prev => ({
         ...prev,
@@ -56,7 +58,7 @@ const App: React.FC = () => {
 
       // Upload the document
       console.log('Uploading document...');
-      const uploadResponse = await uploadDocument(file, outputFilename, outputFormat);
+      const uploadResponse = await uploadDocument(file, outputFilename, outputFormat, categories);
       console.log('Upload response:', uploadResponse);
       
       // Set task ID

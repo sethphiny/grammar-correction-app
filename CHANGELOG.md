@@ -7,7 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - 2024-01-XX
 
+### Fixed
+- **Category Selection**: Fixed issue where selected categories were not properly applied during analysis
+  - Added `Form(...)` imports to properly parse multipart form data in FastAPI
+  - Updated upload endpoint parameters to use `Form()` for all form fields
+  - Added debug logging to trace category selection through the system
+  - Now correctly filters grammar checks based on user-selected categories
+
 ### Added
+- **Selective Category Analysis**: Users can now choose which grammar categories to analyze
+  - Frontend displays checkboxes for all available grammar categories
+  - "Select All" option for convenience (enabled by default)
+  - Categories include: Redundancy, Awkward Phrasing, Punctuation, Grammar, Dialogue, Capitalisation, Tense Consistency, Spelling, Parallelism/Concision (Experimental)
+  - Backend filters grammar checks based on selected categories
+  - API endpoint `/categories` returns available categories
+  - Selected categories are passed to grammar checker for targeted analysis
+  - Improves performance and allows focus on specific issue types
+- **Parallelism/Concision Category (EXPERIMENTAL)**: Grammar checking category for writing clarity and conciseness
+  - ⚠️ **EXPERIMENTAL FEATURE**: Enabled but may produce false positives - use with caution
+  - Marked as "(Experimental)" in the UI and reports
+  - Users can choose to enable/disable this category via checkbox selection
+  - **Wordy Phrases**: 40+ verbose phrases with concise alternatives
+    - Examples: "at the present moment" → "now", "in order to" → "to", "prior to" → "before"
+    - Examples: "make a decision" → "decide", "give consideration to" → "consider", "reach a conclusion" → "conclude"
+    - Examples: "on a regular basis" → "regularly", "at all times" → "always", "in many cases" → "often"
+  - **Smart Passive Voice Detection with spaCy**: Uses linguistic analysis to detect true passive voice only
+    - **Eliminates False Positives**: Uses spaCy dependency parsing (auxpass detection) instead of regex
+      - ✅ **Skips**: "is nuanced", "is layered" (linking verb + adjective, NOT passive voice)
+      - ❌ **Flags**: "was written", "were marketed" (true passive constructions)
+    - **Dynamic Fix Suggestions**: Generates context-specific advice based on the detected verb
+      - Example: "was written" → "identify who performs the action of 'write' and make them the subject"
+      - Example: "were marketed" → "identify who performs the action of 'market' and make them the subject"
+    - **Smart Filtering**: Only flags when the agent is unclear or missing
+      - ✅ **Skips**: "was written by Chapman" (clear agent, intentional passive)
+      - ✅ **Skips**: "It was designed to..." (intentional passive pattern)
+      - ✅ **Skips**: Technical contexts (framework, methodology, research, etc.)
+      - ✅ **Skips**: Short sentences (< 8 words) which may be stylistic
+      - ❌ **Flags**: "The message was interpreted as harmful" (no clear agent)
+    - Requires spaCy and en_core_web_sm model (gracefully degrades if not available)
+  - **Nominalization Detection**: Identifies verbs turned into nouns (less concise writing)
+    - Examples: "make an analysis of" → suggests "analyze", "provide an explanation of" → suggests "explain"
+  - **Redundant Intensifiers**: Flags redundant modifiers of absolute terms
+    - Examples: "very unique" → "unique", "completely destroyed" → "destroyed", "absolutely certain" → "certain"
+  - Auto-fixes available for most patterns; complex cases are flagged for manual review
+  - Integrated into report generation with proper category display name
 - **Preserve Empty Lines for Accurate Line Numbers**: Document parser now preserves empty lines
   - Empty lines are included in the parsed document data to maintain accurate line numbering
   - Line numbers in reports now match the original document exactly
@@ -342,6 +385,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sample Documents** - Test suite with various document structures
 
 ## [Unreleased]
+
+### Added
+- **Dialogue Category**: Added comprehensive dialogue checking for proper punctuation and formatting
+  - Missing commas before closing quotation marks with dialogue tags (e.g., "Hello" said John → "Hello," said John)
+  - Comma placement inside quotation marks before dialogue tags
+  - Dialogue tag capitalization (should be lowercase after quotation marks)
+  - Pattern matching for common dialogue tags (said, asked, replied, answered, whispered, shouted, etc.)
+- **Capitalisation Category**: Added extensive capitalization error detection
+  - Sentences should start with capital letters after punctuation (. ! ?)
+  - Days of the week capitalization (monday → Monday)
+  - Months capitalization (january → January)
+  - Country names capitalization (america → America, england → England, etc.)
+  - Pronoun "I" capitalization when used with verbs (i am → I am)
+  - Context-aware "May" detection to differentiate between month and modal verb
+- **Tense Consistency Category**: Added detection for inconsistent tense usage (past/present)
+  - Detects mixing of present and past tense within the same sentence
+  - Example: "I walk to the store and bought milk" → flags inconsistent tense usage
+  - Example: "I walked to the store and buy milk" → flags inconsistent tense usage
+  - Covers 70+ common irregular verbs (go/went, see/saw, know/knew, etc.)
+  - Flags issues with guidance to review tense usage (no auto-correction due to complexity)
+  - Helps maintain consistent narrative voice throughout the document
+- **Frontend Category Support**: Updated UI to display new categories with distinct colors
+  - Added blue color scheme for Tense Consistency category
+  - Added teal color scheme for Dialogue category
+  - Added cyan color scheme for Capitalisation category
+  - Added orange color scheme for Grammar category
+  - Updated category dropdown filters to include all new categories
+
+### Fixed
+- **May Modal Verb False Positive**: Fixed incorrect capitalization of "may" when used as a modal verb
+  - "whatever they may be" now correctly keeps "may" lowercase (modal verb)
+  - "in May" or "May 15" correctly capitalizes "May" (the month)
+  - Uses context-aware regex patterns to check for month indicators (in, on, during, of, next, last, this, until, by, from, since)
+  - Also detects "May" followed by day numbers (1-31) or ordinals (1st, 2nd, etc.)
+- **Ellipsis Capitalization False Positive**: Fixed incorrect capitalization after ellipsis (...)
+  - Text after "..." is no longer flagged for capitalization as it's a sentence continuation
+  - Example: "going home... every corner" correctly keeps "every" lowercase
+  - Uses negative lookbehind to exclude periods that are part of ellipsis
+- **Abbreviation Capitalization False Positive**: Fixed incorrect capitalization after common abbreviations
+  - Text after abbreviations like "a.m.", "p.m.", "e.g.", "i.e.", "Dr.", "Mr.", "Mrs.", etc. is no longer incorrectly flagged
+  - Example: "12:00 a.m. on the dot" correctly keeps "on" lowercase
+  - Added comprehensive abbreviation detection covering 40+ common abbreviations
+  - Includes time markers (a.m., p.m.), examples (e.g., i.e., viz.), titles (Dr., Mr., Mrs., Ms., Prof., Sr., Jr.), business terms (Inc., Corp., Ltd., Co.), common Latin phrases (n.b., p.s., a.k.a.), country codes (U.S., U.K., U.N., U.S.A., D.C.), academic degrees (Ph.D., B.A., M.A., B.S., M.S.), and measurements (ft., in., lb., oz., vol.)
+- **URL Capitalization False Positive**: Fixed incorrect capitalization detection near URLs
+  - Text following URLs no longer triggers false positives
+  - Example: "April 4, 2024. https://example.com" correctly ignores the period before URL
+  - Detects URLs by looking both before and after periods (http://, https://, www., .com/, .org/, etc.)
+  - Prevents flagging legitimate sentence breaks that occur before web links
 
 ### Updated
 - **LanguageTool Python Library** - Updated from version 2.7.1 to 2.9.4 for improved performance and bug fixes
