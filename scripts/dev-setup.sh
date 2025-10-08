@@ -99,17 +99,6 @@ setup_backend() {
         exit 1
     fi
     
-    # Download spaCy model
-    print_status "Downloading spaCy English model..."
-    if ! python -c "import spacy; spacy.load('en_core_web_sm')" 2>/dev/null; then
-        print_status "Installing spaCy English model..."
-        # Try direct download if spacy CLI fails
-        pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
-        print_success "spaCy English model installed successfully"
-    else
-        print_success "spaCy English model already available"
-    fi
-    
     # Create necessary directories
     mkdir -p temp_files uploads
     
@@ -199,12 +188,7 @@ verify_setup() {
     cd backend
     if [ -f "venv/bin/activate" ]; then
         source venv/bin/activate
-        if python -c "import spacy; nlp = spacy.load('en_core_web_sm'); print('✓ spaCy model loaded')" 2>/dev/null; then
-            print_success "Backend spaCy model verified"
-        else
-            print_warning "Backend spaCy model verification failed"
-        fi
-        if python -c "from services.hybrid_grammar_checker import HybridGrammarChecker; print('✓ Grammar checker imports successfully')" 2>/dev/null; then
+        if python -c "from services.grammar_checker import GrammarChecker; print('✓ Grammar checker imports successfully')" 2>/dev/null; then
             print_success "Backend grammar checker verified"
         else
             print_warning "Backend grammar checker verification failed"

@@ -7,7 +7,197 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - 2024-01-XX
 
+### Added
+- **Preserve Empty Lines for Accurate Line Numbers**: Document parser now preserves empty lines
+  - Empty lines are included in the parsed document data to maintain accurate line numbering
+  - Line numbers in reports now match the original document exactly
+  - Makes it easier to locate issues in the original file
+  - Empty lines are still skipped during grammar checking (no false errors)
+
+### Changed
+- **Simplified Grammar Checker to Focus on Clarity**: Temporarily disabled LanguageTool checks
+  - Removed LanguageTool dependency from active checking
+  - Now checks for redundant phrases, awkward phrasing, punctuation, and grammar using custom pattern matching
+  - **Redundant Phrases**: 100+ common redundancies with corrections
+    - Examples: "absolutely essential" → "essential", "past history" → "history", "end result" → "result"
+  - **Awkward Phrasing**: 100+ wordy/awkward constructions with clearer alternatives
+    - Examples: "due to the fact that" → "because", "at this point in time" → "now", "in the event that" → "if"
+    - Examples: "has the ability to" → "can", "made a decision" → "decided", "prior to" → "before"
+  - **Punctuation**: Common punctuation errors
+    - Multiple consecutive spaces → single space
+    - Extra spaces before punctuation (commas, semicolons, etc.)
+    - Missing spaces after punctuation  
+    - Multiple punctuation marks (e.g., ",," → "," or ";;" → ";")
+    - Extra spaces after opening brackets or before closing brackets
+    - **Note**: Ellipsis (...) and em dashes (—) are preserved as valid punctuation
+  - **Grammar**: Common grammar errors
+    - Common verb errors: "should of" → "should have", "could of" → "could have", "would of" → "would have"
+    - Homophones: "your/you're", "its/it's", "their/there", "then/than", "loose/lose", "affect/effect"
+    - Double negatives (e.g., "don't have nothing" → "don't have anything")
+    - **Notes**: 
+      - Article checking ("a" vs "an") removed - depends on pronunciation, not spelling
+      - Subject-verb agreement removed - too complex (modals, auxiliaries, causatives all affect verb form)
+  - Preserves capitalization of original text in suggestions
+  - More focused and faster checking - other checks (spelling) will be added back later
+  - Simplified codebase by removing unused LanguageTool processing methods
+
+### Previous Features
+- **Common Phrase Detection**: Filter out false positives for common English phrases
+  - Detects phrases like "out loud", "in order", "a lot", "each other", etc.
+  - Prevents incorrect suggestions like "out loud" → "our loud"
+  - Works for both line-level and sentence-level checking
+  - Added 10+ common phrases that are often incorrectly flagged by spell checkers
+- **Improved Report Structure**: Enhanced report formatting with hierarchical organization
+  - Added "Text:" field showing the original text at the top of each issue
+  - Increased indentation for all sub-items (Text, Problem, Fix, Full correction, Category)
+  - Added "Category:" field at the end of each issue with formatted category names
+  - Made all labels bold ("Text:", "Problem:", "Fix:", "Full correction:", "Category:")
+  - Better visual hierarchy with consistent spacing and indentation
+  - Category names are now title-cased and readable (e.g., "Subject Verb Agreement")
+- **Improved Style Warning Handling**: Filter out useless fix suggestions
+  - Detects when LanguageTool suggests the same word as replacement (e.g., 'For' → 'For')
+  - Skips issues entirely if corrected text is identical to original (no real changes)
+  - Shows "Consider rephrasing (no specific suggestion available)" for style warnings without real fixes
+  - Prevents displaying unhelpful corrections like repetition warnings with no alternatives
+  - Only shows "Full correction" when actual fixes are available
+  - Eliminates false positives from style checkers that don't produce actionable changes
+- **Proper Name Detection**: Added intelligent filtering for proper names to prevent false positives
+  - Detects names with title prefixes (Dr., Mr., Mrs., Prof., etc.)
+  - Recognizes name patterns like "FirstName LastName" and "By AuthorName"
+  - Identifies names with special capitalization (McFarlane, O'Brien, etc.)
+  - Filters out MORFOLOGIK spelling suggestions for detected proper names
+  - Handles possessive names (e.g., "Pearlman's")
+  - Detects acronyms and organizations (all caps words)
+  - Examples: "Dr. Bryan Pearlman", "Kwame", "Ekanem", "McFarlane" are no longer flagged
+- **Improved Fix Display**: Fixed discrepancy between UI and report fix display
+  - `fix` field now shows individual replacements (e.g., 'there' → 'their')
+  - `corrected_sentence` field shows the full corrected line
+  - UI and report now consistently show the same information
+  - Multiple fixes in one line are displayed as summary (e.g., 'word1' → 'fix1'; 'word2' → 'fix2')
+  - Added line breaks in reports: Fix and Full correction are now on separate lines for better readability
+  - Report format: "• Fix:" followed by "• Full correction:" on new line (instead of arrow on same line)
+- **Manual Report Download**: Removed automatic report download, added "Download Report" button
+  - Report no longer downloads automatically when analysis completes
+  - User can manually download report using the button in results view
+  - Better user control over when to download the corrected document
+- **🎉 Minimal UI Design**: Completely redesigned frontend with clean, minimal interface
+  - Removed header navigation and footer sections for cleaner look
+  - Simplified color scheme using gray-900 as primary color
+  - Centered layout with focused content area (max-width: 2xl)
+  - Minimal file upload interface with compact dropzone
+  - Streamlined results display with condensed issue cards
+  - Reduced visual noise and unnecessary decorations
+  - Cleaner typography using system fonts
+  - Simplified CSS with minimal custom classes
+  - More efficient use of whitespace for better focus
+  - Compact progress indicators during processing
+- **🎉 Real-Time Progress with WebSockets**: Added live analysis updates during document processing
+  - WebSocket connection provides instant feedback during grammar checking
+  - Live statistics display showing:
+    - Total lines in document
+    - Lines analyzed in real-time (updating continuously)
+    - Issues found as they're detected
+    - Issues per line ratio
+  - Beautiful gradient progress UI with animated stats cards
+  - Backend sends granular updates: starting, parsing, checking each line, analysis complete, generating report
+  - Frontend automatically connects WebSocket on upload and displays live stats
+  - Proper cleanup of WebSocket connections on component unmount
+  - Enhanced user experience with immediate visibility into analysis progress
+
+### Changed
+- **🚨 MAJOR: Line-Level Grammar Checking**: Completely refactored grammar checking to work at line level instead of sentence level
+  - Now checks entire lines (with all sentences combined) before splitting into sentences
+  - This prevents false positives from quotes, punctuation, and context that spans multiple sentences
+  - New `_check_line_content()` method processes full lines with LanguageTool
+  - Eliminates the need for complex post-processing filters for unpaired quotes
+  - Much cleaner architecture that respects the natural document structure
+- **🚨 MAJOR: Removed spaCy Dependency**: Simplified grammar checker to use only LanguageTool
+  - Removed all spaCy code and dependencies
+  - Renamed `HybridGrammarChecker` to `GrammarChecker`
+  - Reduced package size and improved performance
+  - LanguageTool handles all grammar, spelling, punctuation, and style checks
+  - Old hybrid checker backed up as `hybrid_grammar_checker.py.backup`
+  - Added `get_issues_summary()` method to new GrammarChecker class
+- **Enhanced Unpaired Quote Filtering**: Fixed all unpaired quote false positives through line-level checking
+  - Line-level checking naturally prevents unpaired quote issues that occurred from sentence splitting
+  - Fixed: `"Honestly? Like she gets it."` no longer flagged as unpaired quotes
+  - Fixed: `"You don't have to talk. Just be here."` no longer flagged as two unpaired quote errors
+  - Fixed: `"Are you serious? I've been doing everything I can think of to show love."` now correctly seen as balanced
+  - Single quote character issues (both regular `"` and smart quotes `"` `"`) are filtered out
+  - Much simpler and more reliable than previous sentence-level filtering approach
+- **Fixed Hyphenated Contractions**: Resolved false positives for hyphenated contractions like "lunch-wasn't"
+  - Added text sanitization to preserve hyphenated contractions (e.g., "lunch-wasn't", "act-making")
+  - Enhanced false positive filtering to skip spelling errors for partial contractions
+  - Fixed: `"lunch-wasn't"` no longer flagged as spelling error "lunch-wasn"
+  - Fixed: Apostrophes in contractions no longer flagged as unpaired symbols
+  - Added comprehensive pattern matching for all common contractions with hyphens
+
 ### Fixed
+- **Upload Timeout for Large Files**: Increased upload timeout from 2 minutes to 10 minutes to handle large documents
+  - Fixed issue where frontend showed timeout error even though backend processed successfully
+  - Large files (like 200KB+ Word documents) now upload without timeout errors
+- **Processing Status Display**: Fixed UI getting stuck on "Uploading document..." even when backend is analyzing
+  - Frontend now fetches and displays initial status immediately after upload completes
+  - Progress percentage and status messages now show immediately instead of waiting for first poll
+  - Improved user feedback during document processing
+- **Upload Processing & Progress Display**: Fixed issue where document upload would get stuck with no feedback and percentage was not showing. 
+  - Added comprehensive logging throughout the processing pipeline (backend and frontend)
+  - Added visual progress bar with percentage display
+  - Added real-time status updates (uploaded → parsing → checking → generating → completed)
+  - Status display now shows even before first poll completes
+  - Added detailed console logs for debugging status polling
+- **Upload Timeout**: Fixed 30-second timeout issue that was causing uploads to fail for larger documents.
+  - Increased upload timeout from 30 seconds to 2 minutes (120 seconds)
+  - Created separate axios instance for uploads with longer timeout
+  - Added specific timeout error handling with user-friendly message
+  - Added dedicated logging for upload requests
+- **Status Polling Enhancement**: Enhanced status polling with comprehensive logging and progress tracking.
+  - Added detailed logging for each status check with emojis for easy identification
+  - Enhanced `getProcessingStatus` function with request/response logging
+  - Improved `pollStatus` function to show current progress in continuation messages
+  - Added structured logging in App.tsx for status updates received
+  - Better error tracking and debugging visibility for status polling issues
+- **Sentence-Based Grammar Processing**: Implemented sentence-level grammar checking for better context-aware corrections.
+  - Modified grammar checker to process entire sentences as units instead of individual issues
+  - Multiple issues in one sentence are now combined into a single GrammarIssue
+  - All fixes for a sentence are applied together, providing coherent corrections
+  - Enhanced problem descriptions combine multiple issues with clear fix details
+  - Improved corrected_sentence generation with all fixes applied simultaneously
+  - Better context preservation for grammar corrections
+- **Enhanced Issue Display Format**: Updated both frontend UI and report generator to display issues in a clean line-by-line format.
+  - Frontend now shows issues with clear line numbers, original text in quotes, and bullet-pointed problems/fixes
+  - Report generator (DOCX/PDF) now formats issues as "Line X" headers with indented problem descriptions
+  - Added new styling for better readability: monospace font for original text, proper indentation
+  - Improved visual hierarchy with line headers, consistent spacing, and color-coded elements
+  - Better integration of corrected sentences when different from the main fix
+  - Updated to use proper curly quotes (" and ") instead of straight quotes (") for sentence highlighting
+- **Missing Method**: Added `get_issues_summary()` method to GrammarChecker class which was causing background processing to fail silently.
+- **Spaced Contractions**: Fixed issue where contractions with spaces before apostrophes (e.g., "It 's" instead of "It's") were not being recognized. Added spaced contraction preprocessing in `sanitize_text()` to normalize these patterns.
+- **Smart Quote Contractions**: Fixed issue where smart quotes (Unicode 8217 `'` vs ASCII 39 `'`) in contractions were not being recognized. Updated contraction detection in LanguageTool filter to handle both regular apostrophes and smart quotes.
+- **LanguageTool Contraction Filtering**: Fixed issue where LanguageTool was incorrectly flagging contractions like "That's", "It's", "He's", etc. as subject-verb disagreement errors. Added intelligent filtering to prevent LanguageTool from generating false positives on contractions.
+  - Added `_is_contraction_in_sentence()` method to detect contractions in LanguageTool matches
+  - Filters out subject-verb agreement issues when contractions are detected
+  - Handles both standard contractions (That's, It's, He's) and complex contractions (I've, We're, They'll)
+  - Tested with 10+ contraction patterns - all now correctly filtered
+- **Unpaired Quotes Filtering**: Fixed issue where empty quotes ('""', "''") and single quotes ('"', "'") were being flagged as unpaired symbol errors. Added false positive filtering for common punctuation issues.
+  - Added `_is_false_positive_punctuation()` method to detect and skip false positive punctuation errors
+  - Filters out empty quotes, single quotes in short sentences, and other common false positives
+  - Tested with various quote patterns - all now correctly filtered
+- **Noun Contraction Detection**: Fixed issue where noun contractions like "part's" (meaning "part is") were incorrectly flagged as subject-verb disagreement errors. The grammar checker now intelligently distinguishes between contractions and possessives, preventing false positives on noun contractions.
+  - Enhanced `_is_part_of_contraction()` method to handle noun + 's patterns
+  - Distinguishes between contractions (noun + 's = "is") and possessives (noun + 's)
+  - Uses context analysis: if next word is adjective/verb/adverb → contraction, if noun → possessive
+  - Handles gerund ambiguity (working, running, ringing, etc.) by recognizing common gerund patterns
+  - Tested with 13+ patterns including "part's broken", "car's running", "dog's tail", "John's car"
+  - All contraction and possessive test cases now pass with 100% accuracy
+- **Proper Name Spelling Detection**: Fixed issue where proper names like "Pearlman" were incorrectly flagged as spelling mistakes. The grammar checker now intelligently detects proper names and skips spelling corrections for them, preventing false positives on names, surnames, and titles.
+  - Added `_is_proper_name()` method with comprehensive heuristics to identify proper names
+  - Detects names with titles (Dr., Mr., Mrs., Ms., Prof.)
+  - Recognizes FirstName LastName patterns
+  - Identifies common surname suffixes (son, berg, man, etc.)
+  - Handles names with apostrophes (O'Connor) and hyphens (Jean-Pierre)
+  - Skips spelling corrections only for detected proper names while preserving real spelling error detection
+  - Tested with 20+ name patterns including the original "Pearlman" case
 - **Contraction Subject-Verb Agreement Bug**: Fixed critical bug where contractions like "it's", "he's", "we're", etc. were incorrectly flagged as subject-verb disagreement errors. The grammar checker now properly recognizes contractions and skips subject-verb agreement checking for them, preventing false positives.
   - Added `_is_part_of_contraction()` method to detect when spaCy splits contractions into separate tokens
   - Enhanced subject-verb agreement checking to skip contraction patterns

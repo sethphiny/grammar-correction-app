@@ -75,33 +75,21 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
   };
 
   return (
-    <div className="card">
-      <div className="mb-6">
-        <h2 className="text-2xl font-semibold text-gray-900 mb-2">Upload Document</h2>
-        <p className="text-gray-600">
-          Upload a Word document (.doc or .docx) for grammar and style analysis.
-        </p>
-      </div>
-
+    <div>
       {error && (
-        <div className="mb-6 p-4 bg-error-50 border border-error-200 rounded-lg">
-          <div className="flex">
-            <AlertCircle className="h-5 w-5 text-error-400 flex-shrink-0" />
-            <div className="ml-3">
-              <p className="text-sm text-error-700">{error}</p>
-            </div>
-          </div>
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+          {error}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-4">
         {/* File Drop Zone */}
         <div
           {...getRootProps()}
           className={`
             border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
             ${isDragActive 
-              ? 'border-primary-400 bg-primary-50' 
+              ? 'border-gray-900 bg-gray-50' 
               : 'border-gray-300 hover:border-gray-400'
             }
             ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
@@ -111,98 +99,74 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
           
           {selectedFile ? (
             <div className="space-y-2">
-              <File className="h-12 w-12 text-primary-500 mx-auto" />
-              <p className="text-lg font-medium text-gray-900">{selectedFile.name}</p>
-              <p className="text-sm text-gray-500">
+              <File className="h-10 w-10 text-gray-700 mx-auto" />
+              <p className="text-sm font-medium text-gray-900">{selectedFile.name}</p>
+              <p className="text-xs text-gray-500">
                 {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
               </p>
               <button
                 type="button"
                 onClick={handleReset}
-                className="text-sm text-primary-600 hover:text-primary-700"
+                className="text-xs text-gray-600 hover:text-gray-900"
               >
-                Choose different file
+                Change file
               </button>
             </div>
           ) : (
-            <div className="space-y-2">
-              <Upload className="h-12 w-12 text-gray-400 mx-auto" />
-              <p className="text-lg font-medium text-gray-900">
-                {isDragActive ? 'Drop the file here' : 'Drag & drop your document here'}
+            <div className="space-y-1">
+              <Upload className="h-10 w-10 text-gray-400 mx-auto" />
+              <p className="text-sm text-gray-700">
+                {isDragActive ? 'Drop file here' : 'Drop file or click to browse'}
               </p>
-              <p className="text-sm text-gray-500">
-                or click to browse files
-              </p>
-              <p className="text-xs text-gray-400">
-                Supports .doc and .docx files up to 10MB
+              <p className="text-xs text-gray-500">
+                .doc, .docx up to 10MB
               </p>
             </div>
           )}
         </div>
 
         {/* Output Configuration */}
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-2 gap-3">
           <div>
-            <label htmlFor="output-filename" className="block text-sm font-medium text-gray-700 mb-2">
-              Output Filename
+            <label htmlFor="output-filename" className="block text-xs font-medium text-gray-700 mb-1">
+              Output Name
             </label>
             <input
               type="text"
               id="output-filename"
               value={outputFilename}
               onChange={(e) => setOutputFilename(e.target.value)}
-              placeholder="Enter output filename"
-              className="input-field"
+              placeholder="filename"
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-gray-900"
               disabled={disabled}
             />
-            <p className="mt-1 text-xs text-gray-500">
-              The extension will be added automatically based on the output format.
-            </p>
           </div>
 
           <div>
-            <label htmlFor="output-format" className="block text-sm font-medium text-gray-700 mb-2">
-              Output Format
+            <label htmlFor="output-format" className="block text-xs font-medium text-gray-700 mb-1">
+              Format
             </label>
             <select
               id="output-format"
               value={outputFormat}
               onChange={(e) => setOutputFormat(e.target.value as OutputFormatEnum)}
-              className="input-field"
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-gray-900"
               disabled={disabled}
             >
               <option value={OutputFormatEnum.DOCX}>DOCX</option>
               <option value={OutputFormatEnum.PDF}>PDF</option>
             </select>
-            <p className="mt-1 text-xs text-gray-500">
-              Choose the format for your correction report.
-            </p>
           </div>
         </div>
 
         {/* Submit Button */}
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={!selectedFile || !outputFilename.trim() || disabled}
-            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {disabled ? (
-              <>
-                <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Processing...
-              </>
-            ) : (
-              <>
-                <Upload className="w-4 h-4 mr-2" />
-                Start Analysis
-              </>
-            )}
-          </button>
-        </div>
+        <button
+          type="submit"
+          disabled={!selectedFile || !outputFilename.trim() || disabled}
+          className="w-full bg-gray-900 text-white py-2 px-4 rounded text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {disabled ? 'Processing...' : 'Analyze'}
+        </button>
       </form>
     </div>
   );

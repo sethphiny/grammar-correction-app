@@ -45,7 +45,50 @@ def sanitize_text(text: str) -> str:
     # 4️⃣ Collapse multiple spaces
     text = re.sub(r"\s{2,}", " ", text).strip()
 
-    # 5️⃣ Optionally normalize curly quotes and dashes
+    # 5️⃣ Fix spaced contractions (e.g., "It 's" → "It's")
+    # Handle common contractions that might have spaces before apostrophes
+    spaced_contraction_patterns = [
+        (r"\b([Ii]t)\s+('s)\b", r"\1\2"),
+        (r"\b([Hh]e)\s+('s)\b", r"\1\2"),
+        (r"\b([Ss]he)\s+('s)\b", r"\1\2"),
+        (r"\b([Ww]e)\s+('re)\b", r"\1\2"),
+        (r"\b([Tt]hey)\s+('re)\b", r"\1\2"),
+        (r"\b([Yy]ou)\s+('re)\b", r"\1\2"),
+        (r"\b([Ii])\s+('m)\b", r"\1\2"),
+        (r"\b([Ii])\s+('ve)\b", r"\1\2"),
+        (r"\b([Ii])\s+('ll)\b", r"\1\2"),
+        (r"\b([Ii])\s+('d)\b", r"\1\2"),
+        (r"\b([Ww]e)\s+('ve)\b", r"\1\2"),
+        (r"\b([Ww]e)\s+('ll)\b", r"\1\2"),
+        (r"\b([Ww]e)\s+('d)\b", r"\1\2"),
+        (r"\b([Tt]hey)\s+('ve)\b", r"\1\2"),
+        (r"\b([Tt]hey)\s+('ll)\b", r"\1\2"),
+        (r"\b([Tt]hey)\s+('d)\b", r"\1\2"),
+        (r"\b([Yy]ou)\s+('ve)\b", r"\1\2"),
+        (r"\b([Yy]ou)\s+('ll)\b", r"\1\2"),
+        (r"\b([Yy]ou)\s+('d)\b", r"\1\2"),
+        (r"\b([Hh]e)\s+('ll)\b", r"\1\2"),
+        (r"\b([Hh]e)\s+('d)\b", r"\1\2"),
+        (r"\b([Ss]he)\s+('ll)\b", r"\1\2"),
+        (r"\b([Ss]he)\s+('d)\b", r"\1\2"),
+        (r"\b([Ii]t)\s+('ll)\b", r"\1\2"),
+        (r"\b([Ii]t)\s+('d)\b", r"\1\2"),
+        (r"\b([Tt]his)\s+('s)\b", r"\1\2"),
+        (r"\b([Tt]hat)\s+('s)\b", r"\1\2"),
+        (r"\b([Ww]hat)\s+('s)\b", r"\1\2"),
+        (r"\b([Ww]ho)\s+('s)\b", r"\1\2"),
+        (r"\b([Ww]here)\s+('s)\b", r"\1\2"),
+        (r"\b([Ww]hen)\s+('s)\b", r"\1\2"),
+        (r"\b([Ww]hy)\s+('s)\b", r"\1\2"),
+        (r"\b([Hh]ow)\s+('s)\b", r"\1\2"),
+        (r"\b([Tt]here)\s+('s)\b", r"\1\2"),
+        (r"\b([Hh]ere)\s+('s)\b", r"\1\2"),
+    ]
+    
+    for pattern, replacement in spaced_contraction_patterns:
+        text = re.sub(pattern, replacement, text)
+
+    # 6️⃣ Optionally normalize curly quotes and dashes
     text = text.replace(""", '"').replace(""", '"')
     text = text.replace("'", "'").replace("'", "'")
     text = text.replace("–", "-").replace("—", "-")
@@ -94,28 +137,36 @@ class DocumentParser:
             line_number = 1
             total_sentences = 0
             
-            # Extract text from paragraphs
+            # Extract text from paragraphs - preserve all lines including empty ones
             for paragraph in doc.paragraphs:
-                if paragraph.text.strip():  # Skip empty paragraphs
-                    # Split paragraph into lines (handle manual line breaks)
-                    paragraph_lines = paragraph.text.split('\n')
+                # Split paragraph into lines (handle manual line breaks)
+                paragraph_lines = paragraph.text.split('\n')
+                
+                for line_text in paragraph_lines:
+                    # Sanitize the text before processing
+                    sanitized_text = sanitize_text(line_text.strip())
                     
-                    for line_text in paragraph_lines:
-                        if line_text.strip():  # Skip empty lines
-                            # Sanitize the text before processing
-                            sanitized_text = sanitize_text(line_text.strip())
-                            if sanitized_text:  # Only process if sanitization didn't remove everything
-                                # Split line into sentences
-                                sentences = self._split_into_sentences(sanitized_text)
-                                
-                                lines.append(DocumentLine(
-                                    line_number=line_number,
-                                    content=sanitized_text,
-                                    sentences=sentences
-                                ))
-                                
-                                total_sentences += len(sentences)
-                                line_number += 1
+                    # Add line even if empty to preserve line numbers
+                    if sanitized_text:
+                        # Split line into sentences
+                        sentences = self._split_into_sentences(sanitized_text)
+                        
+                        lines.append(DocumentLine(
+                            line_number=line_number,
+                            content=sanitized_text,
+                            sentences=sentences
+                        ))
+                        
+                        total_sentences += len(sentences)
+                    else:
+                        # Add empty line to preserve line numbering
+                        lines.append(DocumentLine(
+                            line_number=line_number,
+                            content="",
+                            sentences=[]
+                        ))
+                    
+                    line_number += 1
             
             # Extract metadata
             metadata = {
@@ -180,27 +231,36 @@ class DocumentParser:
                 if not text:
                     raise Exception("All parsing methods failed. Please convert your .doc file to .docx format.")
                 
-                # Split into lines
+                # Split into lines - preserve all lines including empty ones
                 lines = []
                 line_number = 1
                 total_sentences = 0
                 
                 for line_text in text.split('\n'):
-                    if line_text.strip():  # Skip empty lines
-                        # Sanitize the text before processing
-                        sanitized_text = sanitize_text(line_text.strip())
-                        if sanitized_text:  # Only process if sanitization didn't remove everything
-                            # Split line into sentences
-                            sentences = self._split_into_sentences(sanitized_text)
-                            
-                            lines.append(DocumentLine(
-                                line_number=line_number,
-                                content=sanitized_text,
-                                sentences=sentences
-                            ))
-                            
-                            total_sentences += len(sentences)
-                            line_number += 1
+                    # Sanitize the text before processing
+                    sanitized_text = sanitize_text(line_text.strip())
+                    
+                    # Add line even if empty to preserve line numbers
+                    if sanitized_text:
+                        # Split line into sentences
+                        sentences = self._split_into_sentences(sanitized_text)
+                        
+                        lines.append(DocumentLine(
+                            line_number=line_number,
+                            content=sanitized_text,
+                            sentences=sentences
+                        ))
+                        
+                        total_sentences += len(sentences)
+                    else:
+                        # Add empty line to preserve line numbering
+                        lines.append(DocumentLine(
+                            line_number=line_number,
+                            content="",
+                            sentences=[]
+                        ))
+                    
+                    line_number += 1
                 
                 # Extract metadata
                 metadata = {
