@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - 2024-01-XX
 
+### Added
+- **Article/Specificity Category**: New grammar category for article usage and specificity issues
+  - Added `article_specificity` category to grammar checker with comprehensive pattern matching
+  - Detects article errors (a/an usage) with smart vowel/consonant sound recognition
+  - Identifies unnecessary articles before quantifiers and demonstratives
+  - Flags vague language and suggests more specific alternatives
+  - Detects vague comparisons and overuse of "the" for general reference
+  - Includes LLM enhancement support with category-specific guidance
+  - Tested with various examples: "the both students" → "both students", "a elephant" → "an elephant"
+- **Corrected Sentence Generation**: LLM enhancer now generates complete corrected sentences
+  - Updated single issue enhancement prompts to include `corrected_sentence` field
+  - Updated batch enhancement prompts to include `corrected_sentence` for each issue
+  - Modified `_apply_enhancement()` method to set the `corrected_sentence` field
+  - Modified `_apply_batch_enhancements()` method to handle corrected sentences
+  - Tested and verified corrected sentences are properly generated (e.g., "I will start the meeting.")
+
 ### Fixed
 - **Environment Variable Loading**: Fixed LLM enhancement not working due to incorrect .env file loading
   - Updated `main.py` to load `.env` from project root directory

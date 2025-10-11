@@ -156,6 +156,7 @@ class GrammarChecker:
             'tense_consistency': 'Tense Consistency',
             'spelling': 'Spelling',
             'parallelism_concision': 'Parallelism/Concision (Experimental)',  # EXPERIMENTAL: May produce false positives
+            'article_specificity': 'Article/Specificity',
         }
         
         # Common redundant phrases and their corrections
@@ -877,6 +878,34 @@ class GrammarChecker:
             (r'\bextremely\s+crucial\b', "Redundant: 'crucial' is already strong, so 'extremely crucial' is redundant. Use 'crucial' alone", lambda m, t: "crucial"),
         ]
         
+        # Article/Specificity patterns: (pattern, description, fix_function or None)
+        # These patterns detect issues with article usage (a, an, the) and specificity
+        self.article_specificity_patterns = [
+            # Incorrect article usage - only flag obvious errors (words that clearly start with vowel sounds)
+            (r'\ba\s+(elephant|eagle|engine|example|evening|exercise|expert|eye|idea|island|office|umbrella|uncle|uniform|unique|unit|apple|orange|egg|arm|ear|ice|ocean|airplane)\b', "Article error: Use 'an' before words starting with a vowel sound", lambda m, t: f"an {m.group(1)}"),
+            (r'\ban\s+(car|book|house|dog|cat|man|woman|child|student|teacher|doctor|lawyer|engineer|manager|director|company|school|hospital|restaurant|university|user|union|European|one|once)\b', "Article error: Use 'a' before words starting with a consonant sound", lambda m, t: f"a {m.group(1)}"),
+            
+            # Missing articles where needed (only flag obvious cases)
+            (r'\bis\s+(university|hospital|hour|honor|honest|herb)\s+(in|at|for|with|to)', "Missing article: Add 'a' or 'an' before the noun", lambda m, t: f"is a {m.group(1)} {m.group(2)}"),
+            (r'\bis\s+(hour|honor|honest|herb)\s+(in|at|for|with|to)', "Missing article: Add 'an' before words starting with 'h' but pronounced with silent 'h'", lambda m, t: f"is an {m.group(1)} {m.group(2)}"),
+            
+            # Unnecessary articles
+            (r'\bthe\s+(both|all|each|every|some|any|no)\s+', "Unnecessary article: Remove 'the' before quantifiers", lambda m, t: f"{m.group(1)} "),
+            (r'\bthe\s+(this|that|these|those)\s+', "Unnecessary article: Remove 'the' before demonstratives", lambda m, t: f"{m.group(1)} "),
+            
+            # Specificity issues - vague language
+            (r'\b(a\s+)?(thing|stuff|item|object|element|factor|aspect)\b', "Vague language: Be more specific about what you're referring to", None),
+            (r'\b(something|anything|nothing|everything)\b', "Vague language: Consider being more specific about what you're referring to", None),
+            (r'\b(good|bad|nice|great|awesome|cool|terrible|horrible)\b', "Vague language: Use more specific descriptive words", None),
+            (r'\b(lots?\s+of|a\s+lot\s+of|tons?\s+of|plenty\s+of)\b', "Vague quantifier: Use more specific numbers or quantities when possible", None),
+            
+            # Missing specificity in comparisons
+            (r'\b(more|less|better|worse|bigger|smaller|faster|slower)\s+than\s+(before|previously|earlier)\b', "Vague comparison: Specify what you're comparing to", None),
+            
+            # Overuse of "the" when indefinite is more appropriate (be more specific)
+            (r'\bthe\s+(book|car|house|person|student|employee|manager|director)\s+(is|was|will be)\s+(good|bad|nice|great|responsible|important)\b', "Consider if 'a/an' would be more appropriate than 'the' for general reference", None),
+        ]
+        
         # Sentence starters that often indicate intentional passive voice
         self.intentional_passive_starters = [
             'it was', 'it is', 'it has been', 'it had been', 'it will be',
@@ -1554,6 +1583,64 @@ class GrammarChecker:
                 # This detects true passive voice only and generates context-specific fixes
                 passive_issues = self._detect_passive_voice_spacy(line_content, line_number)
                 issues.extend(passive_issues)
+            
+            # Check for article/specificity issues
+            if is_category_enabled('article_specificity'):
+                for pattern, description, fix_func in self.article_specificity_patterns:
+                    matches = list(re.finditer(pattern, line_content, re.IGNORECASE))
+                    
+                    for match in matches:
+                        start_pos = match.start()
+                        end_pos = match.end()
+                        original_text = line_content[start_pos:end_pos]
+                        
+                        # If there's a fix function, apply it; otherwise just flag the issue
+                        if fix_func is not None:
+                            try:
+                                suggested_fix = fix_func(match, line_content)
+                            except Exception:
+                                # If fix function fails, skip this match
+                                continue
+                            
+                            # Skip if no change
+                            if original_text.lower() == suggested_fix.lower():
+                                continue
+                            
+                            # Preserve the capitalization of the original text
+                            if original_text[0].isupper():
+                                suggested_fix = suggested_fix.capitalize()
+                            
+                            # Create a corrected version of the line
+                            corrected_line = (
+                                line_content[:start_pos] + 
+                                suggested_fix + 
+                                line_content[end_pos:]
+                            )
+                            
+                            issue = GrammarIssue(
+                                line_number=line_number,
+                                sentence_number=1,
+                                original_text=line_content,
+                                problem=f"{description}",
+                                fix=f"'{original_text}' → '{suggested_fix}'",
+                                category='article_specificity',
+                                confidence=0.90,
+                                corrected_sentence=corrected_line
+                            )
+                        else:
+                            # No auto-fix available, just flag the issue
+                            issue = GrammarIssue(
+                                line_number=line_number,
+                                sentence_number=1,
+                                original_text=line_content,
+                                problem=f"{description}: '{original_text}'",
+                                fix="Review and revise for better clarity and specificity",
+                                category='article_specificity',
+                                confidence=0.75,
+                                corrected_sentence=None
+                            )
+                        
+                        issues.append(issue)
             
             return issues
             

@@ -152,7 +152,8 @@ class LLMEnhancer:
         # Medium priority categories (benefit from AI refinement)
         medium_priority_categories = {
             'redundancy',
-            'capitalisation'
+            'capitalisation',
+            'article_specificity'
         }
         
         # Lower priority categories (usually straightforward but can benefit from AI)
@@ -367,12 +368,14 @@ class LLMEnhancer:
 
 Please provide:
 1. improved_fix: A more natural, contextual correction that references the full sentence (e.g., "In this sentence, replace 'start off' with 'start' because...")
-2. explanation: Why this correction improves the text in this specific context (maximum 1 sentence)
-3. confidence: Your confidence in this correction (0.0-1.0)
+2. corrected_sentence: The complete sentence with the fix applied
+3. explanation: Why this correction improves the text in this specific context (maximum 1 sentence)
+4. confidence: Your confidence in this correction (0.0-1.0)
 
 Return ONLY valid JSON (no other text):
 {{
     "improved_fix": "In this sentence, replace 'start off' with 'start' because it's more concise and direct",
+    "corrected_sentence": "The complete corrected sentence goes here",
     "explanation": "This makes the sentence more direct and professional",
     "confidence": 0.95
 }}"""
@@ -416,7 +419,7 @@ For each issue, provide a better fix that references the sentence context and so
 
 {category_info}
 
-**Instructions:** Make the fixes more contextual and natural. Instead of just "replace X with Y", provide guidance like "In this sentence, replace 'start off' with 'start' because it's more direct and professional."
+**Instructions:** Make the fixes more contextual and natural. Instead of just "replace X with Y", provide guidance like "In this sentence, replace 'start off' with 'start' because it's more direct and professional." For each issue, also provide the complete corrected sentence.
 
 Return ONLY valid JSON (no other text):
 {{
@@ -424,11 +427,13 @@ Return ONLY valid JSON (no other text):
         {{
             "issue_id": 1,
             "improved_fix": "In this sentence, replace 'start off' with 'start' because it's more concise and direct",
+            "corrected_sentence": "The complete corrected sentence goes here",
             "explanation": "This makes the sentence more professional and to the point"
         }},
         {{
             "issue_id": 2,
             "improved_fix": "In this context, use 'begin' instead of 'commence' for a more natural tone",
+            "corrected_sentence": "The complete corrected sentence goes here",
             "explanation": "This improves readability and sounds more conversational"
         }}
     ]
@@ -451,6 +456,10 @@ Return ONLY valid JSON (no other text):
         # Update fix with improved version
         if "improved_fix" in result and result["improved_fix"]:
             enhanced.fix = f"✨ {result['improved_fix']}"
+        
+        # Set corrected sentence if provided
+        if "corrected_sentence" in result and result["corrected_sentence"]:
+            enhanced.corrected_sentence = result["corrected_sentence"]
         
         # Add explanation to problem
         if "explanation" in result and result["explanation"]:
@@ -509,6 +518,10 @@ Return ONLY valid JSON (no other text):
                 if "improved_fix" in enh and enh["improved_fix"]:
                     enhanced.fix = f"✨ {enh['improved_fix']}"
                 
+                # Set corrected sentence if provided
+                if "corrected_sentence" in enh and enh["corrected_sentence"]:
+                    enhanced.corrected_sentence = enh["corrected_sentence"]
+                
                 # Add explanation
                 if "explanation" in enh and enh["explanation"]:
                     enhanced.problem = f"{enhanced.problem}\n💡 AI Insight: {enh['explanation']}"
@@ -539,7 +552,8 @@ Return ONLY valid JSON (no other text):
             'capitalisation': 'Fix capitalization errors while considering proper nouns, titles, and sentence structure.',
             'tense_consistency': 'Ensure consistent verb tense throughout the sentence and maintain narrative flow.',
             'spelling': 'Correct spelling errors while considering context and homophones that might change meaning.',
-            'parallelism_concision': 'Improve parallel structure and eliminate redundancy. Focus on clear, concise expression.'
+            'parallelism_concision': 'Improve parallel structure and eliminate redundancy. Focus on clear, concise expression.',
+            'article_specificity': 'Fix article usage (a, an, the) and improve specificity by replacing vague language with precise terms. Consider whether definite or indefinite articles are more appropriate.'
         }
         
         return guidance_map.get(category, 'Improve clarity, correctness, and naturalness of the text.')
