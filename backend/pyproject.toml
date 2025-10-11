@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grammar-correction-backend"
+version = "1.0.0"
+description = "Backend API for Grammar Correction Web App"
+authors = [
+    {name = "Grammar Correction Team"}
+]
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "python-dotenv>=1.0.0",
+    "python-multipart>=0.0.6",
+    "pydantic>=2.0.0",
+    "spacy>=3.8.0",
+    "openai>=1.0.0",
+    "tiktoken>=0.5.0",
+    "python-docx>=0.8.11",
+    "textract>=1.6.3",
+    "httpx>=0.25.0"
+]
+
+[tool.pylsp-mypy]
+enabled = true
+live_mode = true
+
+[tool.pyright]
+include = ["**/*.py"]
+exclude = ["**/venv", "**/__pycache__", "**/node_modules"]
+venvPath = "."
+venv = "venv"
+pythonVersion = "3.12"
+pythonPlatform = "Darwin"
+reportMissingImports = "warning"
+reportMissingTypeStubs = "none"
+typeCheckingMode = "basic"

@@ -42,13 +42,12 @@ const App: React.FC = () => {
     file: File, 
     outputFilename: string, 
     outputFormat: OutputFormatEnum,
-    categories: string[],
-    useLLMEnhancement: boolean
+    categories: string[]
   ) => {
     try {
       console.log('Starting file upload:', file.name);
       console.log('Selected categories:', categories);
-      console.log('LLM Enhancement:', useLLMEnhancement);
+      console.log('AI Enhancement: Always enabled');
       
       setAppState(prev => ({
         ...prev,
@@ -61,7 +60,7 @@ const App: React.FC = () => {
 
       // Upload the document
       console.log('Uploading document...');
-      const uploadResponse = await uploadDocument(file, outputFilename, outputFormat, categories, useLLMEnhancement);
+      const uploadResponse = await uploadDocument(file, outputFilename, outputFormat, categories, true);
       console.log('Upload response:', uploadResponse);
       
       // Set task ID

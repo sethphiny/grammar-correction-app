@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - 2024-01-XX
 
+### Fixed
+- **Environment Variable Loading**: Fixed LLM enhancement not working due to incorrect .env file loading
+  - Updated `main.py` to load `.env` from project root directory
+  - Updated `llm_enhancer.py` to load `.env` from project root directory  
+  - Updated `test_llm_connection.py` to load `.env` from project root directory
+  - All environment variables now properly loaded: `LLM_ENHANCEMENT_ENABLED`, `OPENAI_API_KEY`, etc.
+- **LLM Enhancement Quality**: Improved AI-powered grammar fixes to be more contextual and human-like
+  - Enhanced prompts to reference full sentence context instead of generic replacements
+  - Changed from "replace X with Y" to "In this sentence, replace X with Y because..."
+  - Added contextual explanations that reference the specific sentence
+  - Improved system prompts to act as a professional writing coach
+  - Example: "In this sentence, replace 'start off' with 'begin' because it conveys the same meaning in a more formal and straightforward manner."
+- **Frontend AI Integration**: Streamlined AI enhancement to be always enabled with credit monitoring
+  - Removed AI-Enhanced Suggestions checkbox since AI is now enabled by default
+  - Updated UI to show "Always On" status instead of toggle
+  - Added intelligent credit warning notifications when AI enhancement fails
+  - Enhanced error messages for API key issues, package installation, and credit limits
+  - Simplified user experience - no need to manually enable AI features
+- **IDE Configuration**: Fixed Python import resolution warnings in development environment
+  - Added VS Code settings to use virtual environment Python interpreter
+  - Created pyrightconfig.json for proper Python path resolution
+  - Added pyproject.toml for better project configuration
+  - Resolved "could not be resolved" warnings for FastAPI, Uvicorn, python-dotenv, and Spacy imports
+- **LLM Enhancement Coverage**: Expanded AI enhancement to cover all grammar categories
+  - Updated enhancement logic to process all 9 grammar categories (redundancy, awkward_phrasing, punctuation, grammar, dialogue, capitalisation, tense_consistency, spelling, parallelism_concision)
+  - Implemented category-specific enhancement thresholds based on complexity and confidence levels
+  - Added category-specific guidance prompts for more targeted AI corrections
+  - Increased batch processing limit from 20 to 50 issues to handle more comprehensive enhancement
+  - Enhanced prompts with category-specific instructions for better contextual corrections
+
 ### Documentation
 - **LLM Implementation Guide**: Comprehensive guide for integrating AI-powered grammar enhancements
   - Complete implementation plans with 12-week timeline

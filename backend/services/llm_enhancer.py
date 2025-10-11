@@ -121,10 +121,10 @@ class LLMEnhancer:
         """
         Determine if an issue should be enhanced with LLM
         
-        Only enhance:
-        1. Low confidence issues (< 0.85)
-        2. Complex categories that benefit from context
-        3. Issues without corrected sentences
+        Enhanced strategy for ALL categories:
+        1. Low confidence issues (< 0.85) - always enhance
+        2. Issues without corrected sentences - always enhance
+        3. All categories now get LLM enhancement with different priorities
         
         Args:
             issue: Grammar issue to evaluate
@@ -132,26 +132,45 @@ class LLMEnhancer:
         Returns:
             True if issue should be enhanced, False otherwise
         """
-        # Enhance if confidence is low
+        # Always enhance if confidence is low
         if issue.confidence < 0.85:
             return True
         
-        # Enhance complex categories
-        complex_categories = {
-            'awkward_phrasing',
-            'tense_consistency',
-            'parallelism_concision',
-            'dialogue'
-        }
-        
-        if issue.category in complex_categories:
-            return True
-        
-        # Enhance if no corrected sentence provided
+        # Always enhance if no corrected sentence provided
         if not issue.corrected_sentence:
             return True
         
-        return False
+        # High priority categories (complex context-dependent issues)
+        high_priority_categories = {
+            'awkward_phrasing',
+            'tense_consistency', 
+            'parallelism_concision',
+            'dialogue',
+            'grammar'  # Grammar rules can be context-dependent
+        }
+        
+        # Medium priority categories (benefit from AI refinement)
+        medium_priority_categories = {
+            'redundancy',
+            'capitalisation'
+        }
+        
+        # Lower priority categories (usually straightforward but can benefit from AI)
+        lower_priority_categories = {
+            'punctuation',
+            'spelling'
+        }
+        
+        # Enhance all categories, but with different confidence thresholds
+        if issue.category in high_priority_categories:
+            return issue.confidence < 0.90  # Enhance if confidence < 90%
+        elif issue.category in medium_priority_categories:
+            return issue.confidence < 0.95  # Enhance if confidence < 95%
+        elif issue.category in lower_priority_categories:
+            return issue.confidence < 0.98  # Enhance if confidence < 98%
+        
+        # Default: enhance if confidence is not very high
+        return issue.confidence < 0.95
     
     async def enhance_issue(
         self, 
@@ -190,7 +209,7 @@ class LLMEnhancer:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a professional grammar expert. Provide clear, concise corrections with brief explanations. Always return valid JSON."
+                        "content": "You are a professional writing coach and grammar expert. Provide contextual, human-like corrections that reference the sentence and explain why the change improves the text. Make your fixes sound natural and conversational, as if you're personally helping someone improve their writing. Always return valid JSON."
                     },
                     {
                         "role": "user",
@@ -229,7 +248,7 @@ class LLMEnhancer:
         self,
         issues: List[GrammarIssue],
         document_text: str,
-        max_issues: int = 20
+        max_issues: int = 50  # Increased to handle more categories
     ) -> Tuple[List[GrammarIssue], float]:
         """
         Enhance multiple issues in a single API call (more cost-efficient)
@@ -279,7 +298,7 @@ class LLMEnhancer:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a professional grammar expert. Analyze and improve grammar corrections. Return ONLY valid JSON with no additional text."
+                        "content": "You are a professional writing coach and grammar expert. Provide contextual, human-like corrections that reference the sentence context and explain why changes improve the text. Make your fixes sound natural and conversational. Return ONLY valid JSON with no additional text."
                     },
                     {
                         "role": "user",
@@ -328,27 +347,33 @@ class LLMEnhancer:
         context_before = context_before[-100:] if len(context_before) > 100 else context_before
         context_after = context_after[:100] if len(context_after) > 100 else context_after
         
-        return f"""Improve this grammar correction:
+        # Category-specific guidance
+        category_guidance = self._get_category_guidance(issue.category)
+        
+        return f"""Improve this {issue.category} correction by providing a more natural, contextual fix:
 
-Context Before: "{context_before}"
-**Issue Text**: "{issue.original_text[:200]}"
-Context After: "{context_after}"
+**Full Sentence Context:**
+"{context_before}{issue.original_text}{context_after}"
 
-Current Analysis:
+**Current Issue:**
+- Problematic phrase: "{issue.original_text}"
+- Current fix: "{issue.fix}"
 - Problem: {issue.problem}
-- Current Fix: {issue.fix}
 - Category: {issue.category}
-- Confidence: {issue.confidence}
+
+**Category-Specific Guidance:** {category_guidance}
+
+**Task:** Provide a better, more natural correction that fits the sentence context and sounds human-written.
 
 Please provide:
-1. improved_fix: A better, more natural correction (keep concise)
-2. explanation: Why this correction improves the text (maximum 1 sentence)
+1. improved_fix: A more natural, contextual correction that references the full sentence (e.g., "In this sentence, replace 'start off' with 'start' because...")
+2. explanation: Why this correction improves the text in this specific context (maximum 1 sentence)
 3. confidence: Your confidence in this correction (0.0-1.0)
 
 Return ONLY valid JSON (no other text):
 {{
-    "improved_fix": "your improved correction here",
-    "explanation": "why this is better",
+    "improved_fix": "In this sentence, replace 'start off' with 'start' because it's more concise and direct",
+    "explanation": "This makes the sentence more direct and professional",
     "confidence": 0.95
 }}"""
     
@@ -372,23 +397,39 @@ Issue {i}:
 - Category: {issue.category}
 """
         
-        return f"""Analyze and improve these {len(issues)} grammar corrections.
-For each issue, provide a better fix and brief explanation.
+        # Group issues by category for better organization
+        category_groups = {}
+        for issue in issues:
+            if issue.category not in category_groups:
+                category_groups[issue.category] = []
+            category_groups[issue.category].append(issue)
+        
+        category_info = ""
+        for category, category_issues in category_groups.items():
+            guidance = self._get_category_guidance(category)
+            category_info += f"\n**{category.upper()} Issues ({len(category_issues)} issues):** {guidance}"
+        
+        return f"""Analyze and improve these {len(issues)} grammar corrections by providing more natural, contextual fixes.
+For each issue, provide a better fix that references the sentence context and sounds human-written.
 
 {issues_text}
+
+{category_info}
+
+**Instructions:** Make the fixes more contextual and natural. Instead of just "replace X with Y", provide guidance like "In this sentence, replace 'start off' with 'start' because it's more direct and professional."
 
 Return ONLY valid JSON (no other text):
 {{
     "enhancements": [
         {{
             "issue_id": 1,
-            "improved_fix": "better correction here",
-            "explanation": "why it's better (1 sentence max)"
+            "improved_fix": "In this sentence, replace 'start off' with 'start' because it's more concise and direct",
+            "explanation": "This makes the sentence more professional and to the point"
         }},
         {{
             "issue_id": 2,
-            "improved_fix": "better correction here",
-            "explanation": "why it's better (1 sentence max)"
+            "improved_fix": "In this context, use 'begin' instead of 'commence' for a more natural tone",
+            "explanation": "This improves readability and sounds more conversational"
         }}
     ]
 }}"""
@@ -478,6 +519,30 @@ Return ONLY valid JSON (no other text):
         
         print(f"[LLMEnhancer] Applied {len(enhancement_map)} enhancements")
         return enhanced_issues
+    
+    def _get_category_guidance(self, category: str) -> str:
+        """
+        Get category-specific guidance for LLM enhancement
+        
+        Args:
+            category: Grammar issue category
+            
+        Returns:
+            Specific guidance for the category
+        """
+        guidance_map = {
+            'redundancy': 'Focus on eliminating unnecessary words while preserving meaning. Make suggestions more concise and direct.',
+            'awkward_phrasing': 'Improve flow and naturalness. Consider alternative phrasings that sound more professional and clear.',
+            'punctuation': 'Ensure proper punctuation placement and consider how punctuation affects readability and meaning.',
+            'grammar': 'Fix grammatical errors while maintaining the intended meaning. Consider context-dependent grammar rules.',
+            'dialogue': 'Improve dialogue formatting, punctuation, and natural speech patterns. Consider character voice and context.',
+            'capitalisation': 'Fix capitalization errors while considering proper nouns, titles, and sentence structure.',
+            'tense_consistency': 'Ensure consistent verb tense throughout the sentence and maintain narrative flow.',
+            'spelling': 'Correct spelling errors while considering context and homophones that might change meaning.',
+            'parallelism_concision': 'Improve parallel structure and eliminate redundancy. Focus on clear, concise expression.'
+        }
+        
+        return guidance_map.get(category, 'Improve clarity, correctness, and naturalness of the text.')
     
     def get_statistics(self) -> Dict[str, Any]:
         """

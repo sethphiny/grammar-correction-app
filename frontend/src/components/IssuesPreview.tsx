@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, AlertTriangle, CheckCircle } from 'lucide-react';
+import { ChevronDown, ChevronRight, AlertTriangle, CheckCircle, CreditCard, AlertCircle } from 'lucide-react';
 import { GrammarIssue } from '../types';
 
 interface IssuesPreviewProps {
@@ -101,6 +101,32 @@ export const IssuesPreview: React.FC<IssuesPreviewProps> = ({ issues, summary, e
               <span>Enhanced: {enhancement.issues_enhanced} issues</span>
               <span>Cost: ${enhancement.cost.toFixed(4)}</span>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Enhancement Credit Warning */}
+      {enhancement && enhancement.warning && (
+        <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg flex items-start gap-2">
+          <AlertCircle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-orange-900">⚠️ AI Enhancement Unavailable</p>
+            <p className="text-xs text-orange-700 mt-1">
+              {enhancement.warning.includes('API key') 
+                ? 'Please check your OpenAI API key configuration'
+                : enhancement.warning.includes('package')
+                ? 'AI enhancement requires additional setup'
+                : enhancement.warning.includes('budget') || enhancement.warning.includes('credit')
+                ? 'AI enhancement temporarily unavailable due to credit limits'
+                : enhancement.warning
+              }
+            </p>
+            {enhancement.warning.includes('budget') || enhancement.warning.includes('credit') && (
+              <div className="mt-2 flex items-center gap-1 text-xs text-orange-600">
+                <CreditCard className="h-3 w-3" />
+                <span>Check your OpenAI account billing and credits</span>
+              </div>
+            )}
           </div>
         </div>
       )}

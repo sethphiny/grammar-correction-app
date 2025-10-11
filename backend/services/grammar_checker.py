@@ -1136,7 +1136,7 @@ class GrammarChecker:
             enhanced_issues, cost = await self.llm_enhancer.enhance_issues_batch(
                 all_issues,
                 full_text,
-                max_issues=20  # Limit to control costs
+                max_issues=50  # Increased limit to handle all categories
             )
             
             enhancement_metadata = {
