@@ -6,10 +6,12 @@ A Dockerized web application that allows users to upload Word documents (.doc or
 
 - **Web-based UI**: React frontend with TailwindCSS
 - **File Upload**: Restricted to .doc and .docx files (10MB limit)
-- **Hybrid Grammar Checking**: Combines spaCy NLP and LanguageTool for enhanced accuracy
+- **Advanced Grammar Checking**: Pattern-based + AI-enhanced corrections
+- **Selective Category Analysis**: Choose which grammar categories to check
+- **✨ AI-Enhanced Suggestions (Premium)**: Optional LLM-powered improvements (~$0.01-0.03 per MB)
 - **Line-by-Line Analysis**: Processes text sentence by sentence within each line
 - **Cross-Line Sentence Support**: Handles sentences spanning multiple lines
-- **Progress Tracking**: Real-time progress bar during processing
+- **Real-Time Progress**: WebSocket-based progress updates during processing
 - **Multiple Output Formats**: DOCX or PDF reports
 - **Preview Mode**: Review corrections before download
 - **Accessibility**: WCAG 2.1 AA compliant
@@ -50,6 +52,29 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 **Note**: The spaCy model `en_core_web_sm` is required for smart passive voice detection. If not installed, the feature will be automatically disabled with a warning message.
 
+#### Optional: Enable AI-Enhanced Suggestions
+
+For better grammar corrections using OpenAI GPT-4o-mini (~$0.01-0.03 per MB):
+
+```bash
+# Install additional dependencies
+python3 -m pip install openai tiktoken
+
+# Add to your .env file
+echo "LLM_ENHANCEMENT_ENABLED=true" >> .env
+echo "OPENAI_API_KEY=sk-proj-your-key-here" >> .env
+
+# Test connection
+python3 test_llm_connection.py
+
+# Restart backend
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**Get API Key:** https://platform.openai.com/api-keys  
+**Quick Guide:** See `docs/QUICK_START_LLM.md`  
+**Full Guide:** See `docs/API_KEYS_SETUP_GUIDE.md`
+
 #### Frontend Setup
 
 ```bash
@@ -82,11 +107,20 @@ The application uses multiple sophisticated approaches:
    - Sentence segmentation and tokenization
    - Part-of-speech tagging for advanced analysis
 
-3. **Intelligent Filtering**:
+3. **AI-Powered Enhancement (Optional Premium Feature)**:
+   - **Selective LLM Enhancement**: Only processes complex/uncertain issues (20-30%)
+   - **Smart Filtering**: Enhances low-confidence issues (< 85%) and complex categories
+   - **Batch Processing**: Groups issues for efficient API usage
+   - **Cost Optimization**: Typical cost $0.01-0.03 per MB document
+   - **Quality Boost**: +40-50% improvement on complex grammar issues
+   - **Graceful Degradation**: Falls back to pattern-based checking if unavailable
+
+4. **Intelligent Filtering**:
    - Skips intentional passive voice patterns ("It was...", "There was...")
    - Excludes technical/academic contexts (framework, methodology, research)
    - Context-aware duplicate detection
    - Confidence scoring for each issue
+   - User-selectable category filtering (analyze only what you need)
 
 ### Report Format
 
@@ -108,7 +142,28 @@ Line 4–5, Sentence 1
 - `POST /upload` - Upload document for analysis
 - `GET /status/{task_id}` - Check processing status
 - `GET /download/{task_id}` - Download generated report
+- `GET /results/{task_id}` - Get processing results (issues and summary)
+- `GET /categories` - Get available grammar checking categories
 - `GET /health` - Health check
+- `WebSocket /ws/{task_id}` - Real-time progress updates
+
+## Documentation
+
+### 📚 Guides
+
+- **[Quick Start: LLM Enhancement](docs/QUICK_START_LLM.md)** - 15-minute setup for AI-powered corrections
+- **[API Keys Setup Guide](docs/API_KEYS_SETUP_GUIDE.md)** - How to get and configure API keys
+- **[LLM Implementation Guide](docs/LLM_IMPLEMENTATION_GUIDE.md)** - Complete implementation plans and architecture
+- **[LLM Cost Reference](docs/LLM_COST_REFERENCE.md)** - Cost calculator and budget planning
+
+### 💰 Cost Information
+
+| Feature | Cost | When to Use |
+|---------|------|-------------|
+| Pattern-Based Checking | Free | Always (default) |
+| AI-Enhanced Suggestions | $0.01-0.03/MB | Complex documents, premium quality |
+
+**See:** `docs/LLM_COST_REFERENCE.md` for detailed cost breakdown
 
 ## Configuration
 

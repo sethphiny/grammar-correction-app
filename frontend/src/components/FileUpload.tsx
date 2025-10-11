@@ -10,7 +10,7 @@ interface Category {
 }
 
 interface FileUploadProps {
-  onFileUpload: (file: File, outputFilename: string, outputFormat: OutputFormatEnum, categories: string[]) => void;
+  onFileUpload: (file: File, outputFilename: string, outputFormat: OutputFormatEnum, categories: string[], useLLMEnhancement: boolean) => void;
   disabled?: boolean;
 }
 
@@ -22,6 +22,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [selectAll, setSelectAll] = useState(true);
+  const [useLLMEnhancement, setUseLLMEnhancement] = useState(false);
 
   // Fetch available categories on mount
   useEffect(() => {
@@ -116,7 +117,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
       return;
     }
 
-    onFileUpload(selectedFile, outputFilename.trim(), outputFormat, Array.from(selectedCategories));
+    onFileUpload(selectedFile, outputFilename.trim(), outputFormat, Array.from(selectedCategories), useLLMEnhancement);
   };
 
   const handleReset = () => {
@@ -250,6 +251,35 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
               {selectedCategories.size} {selectedCategories.size === 1 ? 'category' : 'categories'} selected
             </p>
           )}
+        </div>
+
+        {/* AI Enhancement Toggle */}
+        <div className="border border-blue-200 bg-blue-50 rounded-lg p-3">
+          <label className="flex items-start space-x-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useLLMEnhancement}
+              onChange={(e) => setUseLLMEnhancement(e.target.checked)}
+              disabled={disabled}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mt-0.5"
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-900">
+                  ✨ AI-Enhanced Suggestions
+                </span>
+                <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-medium">
+                  Premium
+                </span>
+              </div>
+              <p className="text-xs text-gray-600 mt-1">
+                Get improved grammar corrections using advanced AI (~$0.01-$0.03 per MB)
+              </p>
+              <p className="text-xs text-blue-600 mt-1">
+                💡 Best for complex phrasing, tone, and style issues
+              </p>
+            </div>
+          </label>
         </div>
 
         {/* Submit Button */}

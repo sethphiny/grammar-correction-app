@@ -4,8 +4,17 @@ Grammar checker for redundant phrases
 
 import re
 import asyncio
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Tuple
 from models.schemas import DocumentData, DocumentLine, GrammarIssue
+
+# Import LLM enhancer for AI-powered improvements
+try:
+    from services.llm_enhancer import LLMEnhancer
+    LLM_ENHANCER_AVAILABLE = True
+except ImportError:
+    LLM_ENHANCER_AVAILABLE = False
+    LLMEnhancer = None
+    print("ℹ️ LLM Enhancer not available (optional feature)")
 
 # Import spaCy for linguistic analysis (passive voice detection)
 try:
@@ -129,6 +138,12 @@ class GrammarChecker:
     
     def __init__(self, confidence_threshold: float = 0.8):
         self.confidence_threshold = confidence_threshold
+        
+        # Initialize LLM enhancer (optional feature)
+        if LLM_ENHANCER_AVAILABLE:
+            self.llm_enhancer = LLMEnhancer()
+        else:
+            self.llm_enhancer = None
         
         # Grammar issue categories
         self.categories = {
@@ -1019,13 +1034,15 @@ class GrammarChecker:
         self, 
         document_data: DocumentData, 
         progress_callback: Optional[Callable] = None,
-        enabled_categories: Optional[List[str]] = None
-    ) -> List[GrammarIssue]:
+        enabled_categories: Optional[List[str]] = None,
+        use_llm_enhancement: bool = False
+    ) -> Tuple[List[GrammarIssue], Dict[str, Any]]:
         """
         Check entire document for redundant phrases, awkward phrasing, punctuation, grammar, and spelling
         
         Strategy: Check at LINE level, scanning for predefined patterns of
         redundant phrases, awkward phrasing, punctuation errors, grammar mistakes, and spelling errors.
+        Optionally enhance complex issues with LLM for better suggestions.
         
         Args:
             document_data: Parsed document data
@@ -1033,15 +1050,19 @@ class GrammarChecker:
                               Signature: async def callback(line_num: int, total_lines: int, issues_found: int)
             enabled_categories: Optional list of category names to check (e.g., ['redundancy', 'grammar'])
                               If None, all categories are checked
+            use_llm_enhancement: Enable AI-powered enhancement of complex issues (costs ~$0.01-0.03 per MB)
             
         Returns:
-            List of grammar issues found
+            Tuple of (List of grammar issues found, enhancement metadata)
         """
         # Log enabled categories for debugging
         if enabled_categories is None:
             print(f"[GrammarChecker] Checking ALL categories (no filter specified)")
         else:
             print(f"[GrammarChecker] Checking ONLY these categories: {enabled_categories}")
+        
+        if use_llm_enhancement:
+            print(f"[GrammarChecker] ✨ LLM enhancement ENABLED")
         
         all_issues = []
         total_lines = len(document_data.lines)
@@ -1078,7 +1099,58 @@ class GrammarChecker:
         # Merge similar issues
         all_issues = self._merge_similar_issues(all_issues)
         
-        return all_issues
+        # Enhancement metadata
+        enhancement_metadata = {
+            "llm_enabled": False,
+            "issues_enhanced": 0,
+            "cost": 0.0,
+            "warning": None
+        }
+        
+        # Optional: Enhance with LLM
+        if use_llm_enhancement:
+            if not all_issues:
+                enhancement_metadata["warning"] = "No issues found to enhance"
+                return all_issues, enhancement_metadata
+            
+            if not self.llm_enhancer:
+                enhancement_metadata["warning"] = "AI enhancement unavailable: openai package not installed"
+                print(f"⚠️ [GrammarChecker] LLM enhancement requested but LLMEnhancer not available")
+                return all_issues, enhancement_metadata
+            
+            if not self.llm_enhancer.enabled:
+                if not LLM_ENHANCER_AVAILABLE:
+                    enhancement_metadata["warning"] = "AI enhancement unavailable: Install with 'pip install openai tiktoken'"
+                else:
+                    enhancement_metadata["warning"] = "AI enhancement unavailable: Check OPENAI_API_KEY in .env file"
+                print(f"⚠️ [GrammarChecker] LLM enhancement requested but not enabled/configured")
+                return all_issues, enhancement_metadata
+            
+            # LLM enhancer is available and enabled
+            print(f"[GrammarChecker] Enhancing {len(all_issues)} issues with LLM...")
+            
+            # Get full document text for context
+            full_text = "\n".join(line.content for line in document_data.lines)
+            
+            # Enhance issues (batch mode for efficiency)
+            enhanced_issues, cost = await self.llm_enhancer.enhance_issues_batch(
+                all_issues,
+                full_text,
+                max_issues=20  # Limit to control costs
+            )
+            
+            enhancement_metadata = {
+                "llm_enabled": True,
+                "issues_enhanced": self.llm_enhancer.total_issues_enhanced,
+                "cost": cost,
+                "warning": None
+            }
+            
+            print(f"[GrammarChecker] LLM enhancement complete - Cost: ${cost:.4f}")
+            
+            return enhanced_issues, enhancement_metadata
+        
+        return all_issues, enhancement_metadata
     
     async def _check_line_content(
         self,

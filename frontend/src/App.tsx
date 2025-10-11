@@ -32,6 +32,7 @@ const App: React.FC = () => {
 
   const [issues, setIssues] = useState<GrammarIssue[]>([]);
   const [summary, setSummary] = useState<IssuesSummary | null>(null);
+  const [enhancement, setEnhancement] = useState<any>(null);
   const [showResults, setShowResults] = useState(false);
   const [liveStats, setLiveStats] = useState<LiveStats | null>(null);
   
@@ -41,11 +42,13 @@ const App: React.FC = () => {
     file: File, 
     outputFilename: string, 
     outputFormat: OutputFormatEnum,
-    categories: string[]
+    categories: string[],
+    useLLMEnhancement: boolean
   ) => {
     try {
       console.log('Starting file upload:', file.name);
       console.log('Selected categories:', categories);
+      console.log('LLM Enhancement:', useLLMEnhancement);
       
       setAppState(prev => ({
         ...prev,
@@ -58,7 +61,7 @@ const App: React.FC = () => {
 
       // Upload the document
       console.log('Uploading document...');
-      const uploadResponse = await uploadDocument(file, outputFilename, outputFormat, categories);
+      const uploadResponse = await uploadDocument(file, outputFilename, outputFormat, categories, useLLMEnhancement);
       console.log('Upload response:', uploadResponse);
       
       // Set task ID
@@ -168,6 +171,7 @@ const App: React.FC = () => {
                     lines_with_issues: 0,
                     sentences_with_issues: 0
                   });
+                  setEnhancement(results.enhancement || null);
                   
                   setShowResults(true);
                   setLiveStats(null); // Clear live stats when done
@@ -240,6 +244,7 @@ const App: React.FC = () => {
               lines_with_issues: 0,
               sentences_with_issues: 0
             });
+            setEnhancement(results.enhancement || null);
 
             setShowResults(true);
                 setLiveStats(null);
@@ -415,7 +420,7 @@ const App: React.FC = () => {
               </div>
             </div>
             {summary && (
-              <IssuesPreview issues={issues} summary={summary} />
+              <IssuesPreview issues={issues} summary={summary} enhancement={enhancement} />
             )}
           </div>
         )}

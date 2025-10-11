@@ -63,7 +63,8 @@ export const uploadDocument = async (
   file: File,
   outputFilename?: string,
   outputFormat: OutputFormatEnum = OutputFormatEnum.DOCX,
-  categories?: string[]
+  categories?: string[],
+  useLLMEnhancement: boolean = false
 ): Promise<UploadResponse> => {
   const formData = new FormData();
   formData.append('file', file);
@@ -78,6 +79,9 @@ export const uploadDocument = async (
   if (categories && categories.length > 0) {
     formData.append('categories', categories.join(','));
   }
+  
+  // Add LLM enhancement flag
+  formData.append('use_llm_enhancement', useLLMEnhancement.toString());
 
   try {
     const response: AxiosResponse<UploadResponse> = await uploadApi.post('/upload', formData);

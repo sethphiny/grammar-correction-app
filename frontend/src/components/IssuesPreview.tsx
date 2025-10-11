@@ -10,9 +10,15 @@ interface IssuesPreviewProps {
     lines_with_issues: number;
     sentences_with_issues: number;
   };
+  enhancement?: {
+    llm_enabled: boolean;
+    issues_enhanced: number;
+    cost: number;
+    warning?: string;
+  };
 }
 
-export const IssuesPreview: React.FC<IssuesPreviewProps> = ({ issues, summary }) => {
+export const IssuesPreview: React.FC<IssuesPreviewProps> = ({ issues, summary, enhancement }) => {
   const [expandedIssues, setExpandedIssues] = useState<Set<number>>(new Set());
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
@@ -71,6 +77,34 @@ export const IssuesPreview: React.FC<IssuesPreviewProps> = ({ issues, summary })
 
   return (
     <div className="space-y-4">
+      {/* AI Enhancement Status/Warning */}
+      {enhancement && enhancement.warning && (
+        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-2">
+          <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-yellow-900">AI Enhancement Not Available</p>
+            <p className="text-xs text-yellow-700 mt-1">{enhancement.warning}</p>
+            <p className="text-xs text-yellow-600 mt-2">
+              📖 Setup guide: <code className="bg-yellow-100 px-1 rounded">docs/QUICK_START_LLM.md</code>
+            </p>
+          </div>
+        </div>
+      )}
+      
+      {/* AI Enhancement Success */}
+      {enhancement && enhancement.llm_enabled && !enhancement.warning && (
+        <div className="p-3 bg-green-50 border border-green-200 rounded-lg flex items-start gap-2">
+          <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-green-900">✨ AI-Enhanced Suggestions Applied</p>
+            <div className="flex gap-4 mt-1 text-xs text-green-700">
+              <span>Enhanced: {enhancement.issues_enhanced} issues</span>
+              <span>Cost: ${enhancement.cost.toFixed(4)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Summary */}
       <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
         <div className="flex justify-between items-center text-sm mb-3">

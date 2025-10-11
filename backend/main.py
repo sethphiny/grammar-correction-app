@@ -12,6 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
+from dotenv import load_dotenv
+
+# Load environment variables from parent directory
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 from services.document_parser import DocumentParser
 from services.grammar_checker import GrammarChecker
@@ -92,7 +96,8 @@ async def upload_document(
     file: UploadFile = File(...),
     output_filename: str = Form(None),
     output_format: str = Form("docx"),
-    categories: str = Form(None)  # Comma-separated category IDs
+    categories: str = Form(None),  # Comma-separated category IDs
+    use_llm_enhancement: str = Form("false")  # AI enhancement flag
 ):
     """
     Upload a document for grammar checking
@@ -102,6 +107,7 @@ async def upload_document(
         output_filename: Optional output filename (form field)
         output_format: Output format (docx or pdf) (form field)
         categories: Optional comma-separated list of category IDs to check (e.g., "redundancy,grammar") (form field)
+        use_llm_enhancement: Enable AI-powered enhancement (~$0.01-0.03 per MB) (form field)
     """
     # Validate file type
     if not file.filename.lower().endswith(('.doc', '.docx')):
@@ -136,6 +142,10 @@ async def upload_document(
     else:
         print(f"[{task_id}] No categories specified - will check all categories")
     
+    # Parse LLM enhancement parameter
+    llm_enhancement_enabled = use_llm_enhancement.lower() in ('true', '1', 'yes')
+    print(f"[{task_id}] LLM Enhancement: {llm_enhancement_enabled}")
+    
     # Store task information
     processing_tasks[task_id] = {
         "status": "uploaded",
@@ -143,6 +153,7 @@ async def upload_document(
         "output_filename": output_filename,
         "output_format": output_format,
         "categories": enabled_categories,
+        "use_llm_enhancement": llm_enhancement_enabled,
         "progress": 0,
         "result": None,
         "error": None
@@ -158,7 +169,8 @@ async def upload_document(
         file.filename,
         output_filename,
         output_format,
-        enabled_categories
+        enabled_categories,
+        llm_enhancement_enabled
     )
     
     print(f"[{task_id}] Background task added")
@@ -270,14 +282,15 @@ async def process_document_with_delay(
     original_filename: str,
     output_filename: str,
     output_format: str,
-    enabled_categories: list = None
+    enabled_categories: list = None,
+    use_llm_enhancement: bool = False
 ):
     """
     Process document with a small delay to ensure WebSocket connects first
     """
     # Wait 1 second to allow WebSocket connection to establish
     await asyncio.sleep(1)
-    await process_document(task_id, file_content, original_filename, output_filename, output_format, enabled_categories)
+    await process_document(task_id, file_content, original_filename, output_filename, output_format, enabled_categories, use_llm_enhancement)
 
 async def process_document(
     task_id: str,
@@ -285,7 +298,8 @@ async def process_document(
     original_filename: str,
     output_filename: str,
     output_format: str,
-    enabled_categories: list = None
+    enabled_categories: list = None,
+    use_llm_enhancement: bool = False
 ):
     """
     Background task to process the uploaded document with real-time WebSocket updates
@@ -297,6 +311,7 @@ async def process_document(
         output_filename: Output filename
         output_format: Output format (docx or pdf)
         enabled_categories: Optional list of category IDs to check
+        use_llm_enhancement: Enable AI-powered enhancement
     """
     try:
         print(f"[{task_id}] Starting document processing...")
@@ -377,13 +392,18 @@ async def process_document(
                 "message": f"Analyzing line {line_num}/{total_lines}..."
             })
         
-        issues = await grammar_checker.check_document(
+        issues, enhancement_metadata = await grammar_checker.check_document(
             document_data,
             progress_callback=progress_callback,
-            enabled_categories=enabled_categories
+            enabled_categories=enabled_categories,
+            use_llm_enhancement=use_llm_enhancement
         )
         
         print(f"[{task_id}] Found {len(issues)} issues")
+        
+        if enhancement_metadata.get("llm_enabled"):
+            print(f"[{task_id}] ✨ LLM enhanced {enhancement_metadata.get('issues_enhanced', 0)} issues")
+            print(f"[{task_id}] 💰 LLM cost: ${enhancement_metadata.get('cost', 0):.4f}")
         
         # Send WebSocket update: Analysis complete
         await manager.send_progress(task_id, {
@@ -423,7 +443,8 @@ async def process_document(
             "filename": f"{output_filename}.{output_format}",
             "issues_count": len(issues),
             "issues": [issue.dict() for issue in issues],  # Convert Pydantic models to dict
-            "summary": grammar_checker.get_issues_summary(issues)
+            "summary": grammar_checker.get_issues_summary(issues),
+            "enhancement": enhancement_metadata  # Include LLM cost and stats
         }
         
         # Send WebSocket update: Completed
