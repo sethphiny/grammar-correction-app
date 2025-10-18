@@ -6,7 +6,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - LANGUAGETOOL_URL=http://languagetool:8081
+      - LANGUAGETOOL_URL=http://languagetool:8010
       - MAX_FILE_SIZE=10485760
       - PROCESSING_TIMEOUT=300
       - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
@@ -20,6 +20,7 @@ services:
     networks:
       - app-network
     restart: unless-stopped
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -31,10 +32,11 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend
+      args:
+        # Ensure frontend points to backend inside compose network
+        REACT_APP_API_URL: http://backend:8000
     ports:
       - "3000:3000"
-    environment:
-      - REACT_APP_API_URL=http://localhost:8000
     depends_on:
       backend:
         condition: service_healthy
@@ -51,14 +53,15 @@ services:
   languagetool:
     image: silviof/docker-languagetool:latest
     ports:
-      - "8081:8081"
+      - "8081:8010"
     environment:
       - LANGUAGETOOL_OPTS=-Xmx2g
+      - EXTRAOPTIONS=--host 0.0.0.0
     networks:
       - app-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/v2/languages"]
+      test: ["CMD", "curl", "-f", "http://localhost:8010/v2/languages"]
       interval: 30s
       timeout: 10s
       retries: 3

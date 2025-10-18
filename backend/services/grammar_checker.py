@@ -157,6 +157,8 @@ class GrammarChecker:
             'spelling': 'Spelling',
             'parallelism_concision': 'Parallelism/Concision (Experimental)',  # EXPERIMENTAL: May produce false positives
             'article_specificity': 'Article/Specificity',
+            'agreement': 'Agreement',  # Subject–verb agreement (9 conservative patterns to avoid false positives)
+            'ambiguous_pronouns': 'Ambiguous Pronouns',  # Pronoun reference clarity (7 patterns for common ambiguity issues)
         }
         
         # Common redundant phrases and their corrections
@@ -356,6 +358,7 @@ class GrammarChecker:
             'make mention of': 'mention',
             'make reference to': 'refer to',
             'make the acquaintance of': 'meet',
+            'make a decision': 'decide',
             'notwithstanding the fact that': 'although',
             'of the opinion that': 'think',
             'on a daily basis': 'daily',
@@ -398,7 +401,7 @@ class GrammarChecker:
             # Space before punctuation (except opening quotes/brackets)
             (r'\s+([,;:!?])', 'Extra space before punctuation', lambda m, t: m.group(1)),
             # Missing space after punctuation (except in numbers, ellipsis, or URLs)
-            (r'([,;:!?])([A-Z][a-z])', 'Missing space after punctuation', lambda m, t: f"{m.group(1)} {m.group(2)}"),
+            (r'([,;:!?])([a-zA-Z])', 'Missing space after punctuation', lambda m, t: f"{m.group(1)} {m.group(2)}"),
             # Multiple punctuation marks - only flag non-ellipsis cases
             # Skip ellipsis (three or more dots), as it's valid punctuation
             (r'([,;:]){2,}', 'Multiple punctuation marks', lambda m, t: m.group(1)),
@@ -465,6 +468,96 @@ class GrammarChecker:
              lambda m, t: f"affect {m.group(1)}"),
         ]
         
+        # Agreement patterns: (pattern, description, fix_function)
+        # Subject-verb agreement - only safe patterns to avoid false positives
+        self.agreement_patterns = [
+            # Basic plural subjects with singular verbs (obvious errors)
+            (r'\b(they|we|you)\s+(is|was|has)\b',
+             "Subject-verb agreement error: plural subject needs plural verb",
+             lambda m, t: f"{m.group(1)} {'are' if m.group(2) == 'is' else 'were' if m.group(2) == 'was' else 'have'}"),
+            
+            # Singular third-person pronouns with plural verbs (obvious errors)
+            (r'\b(he|she|it)\s+(are|were|have)\b',
+             "Subject-verb agreement error: singular subject needs singular verb",
+             lambda m, t: f"{m.group(1)} {'is' if m.group(2) == 'are' else 'was' if m.group(2) == 'were' else 'has'}"),
+            
+            # "I" with wrong verb forms
+            (r'\bI\s+(is|are|was|were)\b',
+             "Subject-verb agreement error with 'I'",
+             lambda m, t: f"I {'am' if m.group(1) in ['is', 'are'] else 'was'}"),
+            
+            # Common errors: "he don't" / "she don't" / "it don't"
+            (r'\b(he|she|it)\s+don\'t\b',
+             "Subject-verb agreement error: singular subject should use 'doesn't'",
+             lambda m, t: f"{m.group(1)} doesn't"),
+            
+            # "They was" / "We was" / "You was" (common error)
+            (r'\b(they|we|you)\s+was\b',
+             "Subject-verb agreement error: plural subject needs 'were'",
+             lambda m, t: f"{m.group(1)} were"),
+            
+            # "He/She/It have" (without modals)
+            (r'\b(he|she|it)\s+have\s+(a|an|the|to|been)\b',
+             "Subject-verb agreement error: singular subject needs 'has'",
+             lambda m, t: f"{m.group(1)} has {m.group(2)}"),
+            
+            # Common plural nouns with singular verbs (safe cases only)
+            (r'\b(people|children|men|women|police)\s+(is|was|has)\b',
+             "Subject-verb agreement error: plural noun needs plural verb",
+             lambda m, t: f"{m.group(1)} {'are' if m.group(2) == 'is' else 'were' if m.group(2) == 'was' else 'have'}"),
+            
+            # "There is" + plural noun (common error)
+            (r'\bthere\s+is\s+(many|several|multiple|some|few|two|three|four|five)\b',
+             "Subject-verb agreement error: use 'there are' with plural quantities",
+             lambda m, t: f"there are {m.group(1)}"),
+            
+            # Present tense third person singular missing 's'
+            # Only safe, unambiguous verbs to avoid modal/auxiliary false positives
+            (r'\b(he|she|it)\s+(walk|talk|run|eat|sleep|work|live|play|need|want|like|love|hate|think|know|feel)\s+(to|the|a|an|in|on|at|with|for|very|really|always|never|often|sometimes)\b',
+             "Subject-verb agreement error: third person singular needs verb + 's'",
+             lambda m, t: f"{m.group(1)} {m.group(2)}s {m.group(3)}"),
+        ]
+        
+        # Ambiguous pronoun patterns: (pattern, description, fix_function)
+        # Pronoun reference clarity - only flag obvious ambiguity issues
+        self.ambiguous_pronoun_patterns = [
+            # Vague "it" at sentence start without clear referent
+            # Only flag when "it" doesn't refer to weather, time, or distance (common idiomatic uses)
+            (r'^(It|it)\s+(seems|appears|looks|sounds|feels)\s+(like|that|as if)\b',
+             "Vague pronoun: 'It' may be unclear - consider specifying what 'it' refers to",
+             None),
+            
+            # Multiple "it" pronouns in same sentence (potential ambiguity)
+            (r'\bit\b.*\bit\b.*\bit\b',
+             "Pronoun clarity: Multiple uses of 'it' in one sentence may cause confusion - consider using specific nouns",
+             None),
+            
+            # "This" or "That" at start of sentence without noun (vague reference)
+            (r'^(This|this|That|that)\s+(is|was|would|could|should|may|might|can|will)\b',
+             "Vague pronoun: Consider adding a noun after 'this/that' for clarity (e.g., 'This approach is...')",
+             None),
+            
+            # "These" or "Those" used vaguely at sentence start
+            (r'^(These|these|Those|those)\s+(are|were|would|could|should|may|might|can|will)\b',
+             "Vague pronoun: Consider adding a noun after 'these/those' for clarity (e.g., 'These methods are...')",
+             None),
+            
+            # "They" without clear plural antecedent nearby (conservative - only flag certain patterns)
+            (r'^(They|they)\s+(say|said|think|thought|believe|believed|claim|claimed)\b',
+             "Ambiguous pronoun: Who does 'they' refer to? Consider being more specific",
+             None),
+            
+            # Using "one" repeatedly (can become unclear)
+            (r'\bone\b.*\bone\b.*\bone\b',
+             "Pronoun clarity: Multiple uses of 'one' may be confusing - consider rephrasing or using specific nouns",
+             None),
+            
+            # Unclear "which" after multiple nouns (potential ambiguity)
+            (r'\b(and|or)\s+(\w+\s+)*\w+,\s*which\b',
+             "Pronoun clarity: 'Which' may be ambiguous after multiple nouns - clarify what it refers to",
+             None),
+        ]
+        
         # Dialogue patterns: (pattern, description, fix_function, category)
         self.dialogue_patterns = [
             # Missing comma before closing quote with dialogue tag
@@ -477,29 +570,35 @@ class GrammarChecker:
              "Comma should be inside quotation marks before dialogue tag",
              lambda m, t: f'," {m.group(3)}'),
             
-            # Missing quotation marks for dialogue
-            # This is complex and might have false positives, so we'll be conservative
-            
             # Dialogue tag capitalization - should be lowercase after quote
             (r'"\s+([A-Z])(said|aid)\b',
              "Dialogue tag should be lowercase after quotation mark",
              lambda m, t: f'" {m.group(1).lower()}{m.group(2)}'),
             
-            # New paragraph needed for new speaker (detect consecutive dialogue)
-            # This is complex and context-dependent, skip for now
+            # Basic dialogue pattern - quotes followed by dialogue tags
+            (r'"([^"]+)"\s+(said|asked|replied|answered|whispered|shouted|exclaimed|muttered|added|continued|explained|insisted|suggested|declared|announced|complained|admitted|agreed|disagreed|interrupted|protested)',
+             "Dialogue formatting looks correct",
+             lambda m, t: m.group(0)),  # No change needed, just flag for review
             
-            # Single quotes vs double quotes consistency
-            # British vs American style - skip for now as it's style-dependent
+            # Missing comma in dialogue with tag
+            (r'([a-zA-Z])"(\s+)(and|but|then|so)',
+             "Consider adding comma before dialogue tag or rephrasing",
+             lambda m, t: f'{m.group(1)}," {m.group(3)}'),
         ]
         
         # Capitalisation patterns: (pattern, description, fix_function)
         self.capitalisation_patterns = [
             # Sentence doesn't start with capital letter (after . ! ?)
-            # But exclude ellipsis (...) as it's often a continuation
+            # But exclude ellipsis (...) as it's often a continuation and URLs
             # Negative lookbehind to exclude cases where period is part of ellipsis
-            (r'(?<!\.)([.!?])\s+([a-z])',
+            (r'(?<!\.)([.!?])\s+(?!https?://|www\.)([a-z])',
              "Sentence should start with a capital letter",
              lambda m, t: f'{m.group(1)} {m.group(2).upper()}'),
+            
+            # First word of text should be capitalized (but exclude URLs)
+            (r'^(?!https?://|www\.)([a-z])',
+             "Text should start with a capital letter",
+             lambda m, t: m.group(1).upper()),
             
             # First word of text should be capitalized
             # This will be checked separately in the line checking logic
@@ -692,6 +791,31 @@ class GrammarChecker:
             (r'\b(walked|ran|went|came|took|made|got|said|knew|thought)\s+(to|and|but|then)\s+\w+\s+(walk|run|go|come|take|make|get|say|know|think)s?\b',
              "Inconsistent tense: mixing past and present tense",
              lambda m, t: None),
+            
+            # Common irregular verb mistakes
+            (r'\b(buyed|buyed)\b',
+             "Incorrect verb form: 'buyed' should be 'bought'",
+             lambda m, t: "bought"),
+            
+            (r'\b(goed|goed)\b',
+             "Incorrect verb form: 'goed' should be 'went'",
+             lambda m, t: "went"),
+            
+            (r'\b(drinked|drinked)\b',
+             "Incorrect verb form: 'drinked' should be 'drank'",
+             lambda m, t: "drank"),
+            
+            (r'\b(eated|eated)\b',
+             "Incorrect verb form: 'eated' should be 'ate'",
+             lambda m, t: "ate"),
+            
+            (r'\b(sleeped|sleeped)\b',
+             "Incorrect verb form: 'sleeped' should be 'slept'",
+             lambda m, t: "slept"),
+            
+            (r'\b(keeped|keeped)\b',
+             "Incorrect verb form: 'keeped' should be 'kept'",
+             lambda m, t: "kept"),
         ]
         
         # Common spelling mistakes: (incorrect, correct)
@@ -760,6 +884,12 @@ class GrammarChecker:
             'writting': 'writing',
             'writen': 'written',
             'begining': 'beginning',
+            'buyed': 'bought',
+            'goed': 'went',
+            'drinked': 'drank',
+            'eated': 'ate',
+            'sleeped': 'slept',
+            'keeped': 'kept',
             'comming': 'coming',
             'desparate': 'desperate',
             'enviroment': 'environment',
@@ -1161,11 +1291,11 @@ class GrammarChecker:
             # Get full document text for context
             full_text = "\n".join(line.content for line in document_data.lines)
             
-            # Enhance issues (batch mode for efficiency)
+            # Enhance issues (batch mode for efficiency with chunking)
             enhanced_issues, cost = await self.llm_enhancer.enhance_issues_batch(
                 all_issues,
                 full_text,
-                max_issues=50  # Increased limit to handle all categories
+                max_issues=None  # Process ALL issues; chunking inside enhancer prevents timeouts
             )
             
             enhancement_metadata = {
@@ -1360,6 +1490,99 @@ class GrammarChecker:
                             corrected_sentence=corrected_line
                         )
                     
+                        issues.append(issue)
+            
+            # Check for agreement issues (subject-verb agreement)
+            if is_category_enabled('agreement'):
+                for pattern, description, fix_func in self.agreement_patterns:
+                    matches = list(re.finditer(pattern, line_content, re.IGNORECASE))
+                    
+                    for match in matches:
+                        start_pos = match.start()
+                        end_pos = match.end()
+                        original_text = line_content[start_pos:end_pos]
+                    
+                        # Apply the fix function
+                        try:
+                            suggested_fix = fix_func(match, line_content)
+                        except Exception:
+                            # If fix function fails, skip this match
+                            continue
+                
+                        # Skip if no change
+                        if original_text == suggested_fix:
+                            continue
+                
+                        # Create a corrected version of the line
+                        corrected_line = (
+                            line_content[:start_pos] + 
+                            suggested_fix + 
+                            line_content[end_pos:]
+                        )
+                    
+                        issue = GrammarIssue(
+                            line_number=line_number,
+                            sentence_number=1,
+                            original_text=line_content,
+                            problem=f"{description}: '{original_text}' should be '{suggested_fix}'",
+                            fix=f"'{original_text}' → '{suggested_fix}'",
+                            category='agreement',
+                            confidence=0.85,
+                            corrected_sentence=corrected_line
+                        )
+                    
+                        issues.append(issue)
+            
+            # Check for ambiguous pronouns
+            if is_category_enabled('ambiguous_pronouns'):
+                for pattern, description, fix_func in self.ambiguous_pronoun_patterns:
+                    matches = list(re.finditer(pattern, line_content))
+                    
+                    for match in matches:
+                        start_pos = match.start()
+                        end_pos = match.end()
+                        original_text = line_content[start_pos:end_pos]
+                        
+                        # For ambiguous pronouns, we typically flag without auto-fix
+                        # If fix_func is provided, use it; otherwise suggest manual review
+                        if fix_func is not None:
+                            try:
+                                suggested_fix = fix_func(match, line_content)
+                            except Exception:
+                                continue
+                            
+                            if original_text == suggested_fix:
+                                continue
+                            
+                            corrected_line = (
+                                line_content[:start_pos] + 
+                                suggested_fix + 
+                                line_content[end_pos:]
+                            )
+                            
+                            issue = GrammarIssue(
+                                line_number=line_number,
+                                sentence_number=1,
+                                original_text=line_content,
+                                problem=f"{description}",
+                                fix=f"'{original_text}' → '{suggested_fix}'",
+                                category='ambiguous_pronouns',
+                                confidence=0.70,
+                                corrected_sentence=corrected_line
+                            )
+                        else:
+                            # No auto-fix - flag for manual review
+                            issue = GrammarIssue(
+                                line_number=line_number,
+                                sentence_number=1,
+                                original_text=line_content,
+                                problem=f"{description}: '{original_text}'",
+                                fix="Review and clarify pronoun reference",
+                                category='ambiguous_pronouns',
+                                confidence=0.65,
+                                corrected_sentence=None
+                            )
+                        
                         issues.append(issue)
             
             # Check for dialogue issues
@@ -1671,7 +1894,45 @@ class GrammarChecker:
                 merged.append(issue)
                 seen.add(key)
         
-        return merged
+        # Additional deduplication: merge issues that fix the same text on the same line
+        # This handles cases where "buyed" is flagged by both spelling and tense_consistency
+        final_merged = []
+        line_issues = {}
+        
+        # Group issues by line
+        for issue in merged:
+            if issue.line_number not in line_issues:
+                line_issues[issue.line_number] = []
+            line_issues[issue.line_number].append(issue)
+        
+        # Process each line
+        for line_num, line_issue_list in line_issues.items():
+            # Check for overlapping fixes
+            processed_issues = []
+            for issue in line_issue_list:
+                is_duplicate = False
+                for processed in processed_issues:
+                    # Check if this issue fixes the same text as a processed issue
+                    if (issue.original_text == processed.original_text and 
+                        issue.line_number == processed.line_number and
+                        issue.fix == processed.fix):
+                        # Merge categories and keep the one with higher confidence
+                        if issue.confidence > processed.confidence:
+                            processed.category = f"{processed.category}/{issue.category}"
+                            processed.confidence = issue.confidence
+                            processed.problem = f"{processed.problem} (also flagged as {issue.category})"
+                        else:
+                            processed.category = f"{issue.category}/{processed.category}"
+                            processed.problem = f"{processed.problem} (also flagged as {issue.category})"
+                        is_duplicate = True
+                        break
+                
+                if not is_duplicate:
+                    processed_issues.append(issue)
+            
+            final_merged.extend(processed_issues)
+        
+        return final_merged
     
     def get_available_categories(self) -> List[Dict[str, Any]]:
         """

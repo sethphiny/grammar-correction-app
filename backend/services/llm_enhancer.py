@@ -8,6 +8,7 @@ Cost-optimized with selective enhancement, batching, and optional caching
 import os
 import json
 import asyncio
+import time
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 from models.schemas import GrammarIssue
@@ -46,6 +47,13 @@ class LLMEnhancer:
         self.provider = os.getenv("LLM_PROVIDER", "openai")
         self.model = os.getenv("LLM_MODEL", "gpt-4o-mini")
         self.max_cost_per_doc = float(os.getenv("LLM_MAX_COST_PER_DOCUMENT", "0.50"))
+        # When true, enhance all issues with no per-document cap
+        self.enhance_all = os.getenv("LLM_ENHANCE_ALL", "true").lower() == "true"
+        
+        # Timeout and retry configuration
+        self.request_timeout = int(os.getenv("LLM_REQUEST_TIMEOUT", "60"))  # 60 seconds default
+        self.max_retries = int(os.getenv("LLM_MAX_RETRIES", "3"))
+        self.retry_delay = float(os.getenv("LLM_RETRY_DELAY", "2.0"))  # 2 seconds
         
         self.client = None
         self.tokenizer = None
@@ -82,6 +90,59 @@ class LLMEnhancer:
         
         if not self.enabled:
             print("ℹ️ [LLMEnhancer] LLM enhancement is DISABLED")
+    
+    async def _make_llm_request_with_retry(self, messages: List[Dict], max_tokens: int, **kwargs):
+        """
+        Make LLM request with retry logic and timeout handling
+        
+        Args:
+            messages: List of message dictionaries for the API
+            max_tokens: Maximum tokens for response
+            **kwargs: Additional arguments for the API call
+            
+        Returns:
+            API response object
+            
+        Raises:
+            Exception: If all retries fail
+        """
+        last_exception = None
+        
+        for attempt in range(self.max_retries):
+            try:
+                print(f"[LLMEnhancer] Attempt {attempt + 1}/{self.max_retries}")
+                
+                # Add timeout to the request
+                response = await asyncio.wait_for(
+                    self.client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        **kwargs
+                    ),
+                    timeout=self.request_timeout
+                )
+                
+                print(f"[LLMEnhancer] Request successful on attempt {attempt + 1}")
+                return response
+                
+            except asyncio.TimeoutError:
+                last_exception = Exception(f"Request timed out after {self.request_timeout} seconds")
+                print(f"⚠️ [LLMEnhancer] Timeout on attempt {attempt + 1}/{self.max_retries}")
+                
+            except Exception as e:
+                last_exception = e
+                print(f"⚠️ [LLMEnhancer] Error on attempt {attempt + 1}/{self.max_retries}: {e}")
+            
+            # Wait before retry (exponential backoff)
+            if attempt < self.max_retries - 1:
+                delay = self.retry_delay * (2 ** attempt)
+                print(f"[LLMEnhancer] Retrying in {delay:.1f} seconds...")
+                await asyncio.sleep(delay)
+        
+        # All retries failed
+        print(f"❌ [LLMEnhancer] All {self.max_retries} attempts failed")
+        raise last_exception
     
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
         """
@@ -124,7 +185,7 @@ class LLMEnhancer:
         Enhanced strategy for ALL categories:
         1. Low confidence issues (< 0.85) - always enhance
         2. Issues without corrected sentences - always enhance
-        3. All categories now get LLM enhancement with different priorities
+        3. ALL categories now get LLM enhancement regardless of confidence
         
         Args:
             issue: Grammar issue to evaluate
@@ -140,6 +201,7 @@ class LLMEnhancer:
         if not issue.corrected_sentence:
             return True
         
+        # ENHANCE ALL CATEGORIES - Lower thresholds to ensure comprehensive coverage
         # High priority categories (complex context-dependent issues)
         high_priority_categories = {
             'awkward_phrasing',
@@ -162,16 +224,16 @@ class LLMEnhancer:
             'spelling'
         }
         
-        # Enhance all categories, but with different confidence thresholds
+        # Lower confidence thresholds to ensure ALL issues get enhanced
         if issue.category in high_priority_categories:
-            return issue.confidence < 0.90  # Enhance if confidence < 90%
+            return issue.confidence < 0.95  # Enhanced: was 0.90, now 0.95
         elif issue.category in medium_priority_categories:
-            return issue.confidence < 0.95  # Enhance if confidence < 95%
+            return issue.confidence < 0.98  # Enhanced: was 0.95, now 0.98
         elif issue.category in lower_priority_categories:
-            return issue.confidence < 0.98  # Enhance if confidence < 98%
+            return issue.confidence < 0.99  # Enhanced: was 0.98, now 0.99
         
-        # Default: enhance if confidence is not very high
-        return issue.confidence < 0.95
+        # Default: enhance if confidence is not extremely high
+        return issue.confidence < 0.98  # Enhanced: was 0.95, now 0.98
     
     async def enhance_issue(
         self, 
@@ -204,9 +266,8 @@ class LLMEnhancer:
             
             print(f"[LLMEnhancer] Enhancing issue on line {issue.line_number} (est. ${estimated_cost:.4f})")
             
-            # Call LLM
-            response = await self.client.chat.completions.create(
-                model=self.model,
+            # Call LLM with retry logic
+            response = await self._make_llm_request_with_retry(
                 messages=[
                     {
                         "role": "system",
@@ -217,8 +278,8 @@ class LLMEnhancer:
                         "content": prompt
                     }
                 ],
-                temperature=0.3,
                 max_tokens=150,
+                temperature=0.3,
                 response_format={"type": "json_object"}
             )
             
@@ -242,14 +303,20 @@ class LLMEnhancer:
             return enhanced_issue
             
         except Exception as e:
-            print(f"⚠️ [LLMEnhancer] Error enhancing issue on line {issue.line_number}: {e}")
+            error_msg = str(e)
+            if "timed out" in error_msg.lower():
+                print(f"⚠️ [LLMEnhancer] Timeout enhancing issue on line {issue.line_number} after {self.request_timeout}s with {self.max_retries} retries")
+            elif "rate limit" in error_msg.lower():
+                print(f"⚠️ [LLMEnhancer] Rate limited enhancing issue on line {issue.line_number}: {error_msg}")
+            else:
+                print(f"⚠️ [LLMEnhancer] Error enhancing issue on line {issue.line_number}: {error_msg}")
             return issue  # Return original if enhancement fails
     
     async def enhance_issues_batch(
         self,
         issues: List[GrammarIssue],
         document_text: str,
-        max_issues: int = 50  # Increased to handle more categories
+        max_issues: Optional[int] = None
     ) -> Tuple[List[GrammarIssue], float]:
         """
         Enhance multiple issues in a single API call (more cost-efficient)
@@ -265,11 +332,17 @@ class LLMEnhancer:
         if not self.enabled or not self.client:
             return issues, 0.0
         
-        # Filter issues that need enhancement
-        issues_to_enhance = [
-            issue for issue in issues 
-            if self.should_enhance_issue(issue)
-        ][:max_issues]  # Limit to avoid excessive costs
+        # Decide which issues to enhance
+        if self.enhance_all:
+            issues_to_enhance = issues
+        else:
+            issues_to_enhance = [
+                issue for issue in issues 
+                if self.should_enhance_issue(issue)
+            ]
+            # Optional cap for cost control when not enhancing all
+            if isinstance(max_issues, int) and max_issues > 0:
+                issues_to_enhance = issues_to_enhance[:max_issues]
         
         if not issues_to_enhance:
             print("[LLMEnhancer] No issues need enhancement")
@@ -277,65 +350,86 @@ class LLMEnhancer:
         
         print(f"[LLMEnhancer] Enhancing {len(issues_to_enhance)}/{len(issues)} issues (batch mode)")
         
-        try:
-            # Build batch prompt
-            prompt = self._build_batch_prompt(issues_to_enhance)
+        # Process in chunks to avoid timeouts
+        chunk_size = 10  # Process 10 issues per chunk to avoid timeouts
+        total_cost = 0.0
+        enhanced_issues = issues.copy()
+        
+        for i in range(0, len(issues_to_enhance), chunk_size):
+            chunk = issues_to_enhance[i:i + chunk_size]
+            chunk_number = (i // chunk_size) + 1
+            total_chunks = (len(issues_to_enhance) + chunk_size - 1) // chunk_size
             
-            # Estimate cost
-            input_tokens = self.count_tokens(prompt)
-            estimated_output = len(issues_to_enhance) * 100
-            estimated_cost = self.estimate_cost(input_tokens, estimated_output)
+            print(f"[LLMEnhancer] Processing chunk {chunk_number}/{total_chunks} ({len(chunk)} issues)")
             
-            # Check cost limit
-            if estimated_cost > self.max_cost_per_doc:
-                print(f"⚠️ [LLMEnhancer] Estimated cost ${estimated_cost:.2f} exceeds limit ${self.max_cost_per_doc:.2f}")
-                return issues, 0.0
-            
-            print(f"[LLMEnhancer] Batch enhancement (est. ${estimated_cost:.4f}, {len(issues_to_enhance)} issues)")
-            
-            # Call LLM
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a professional writing coach and grammar expert. Provide contextual, human-like corrections that reference the sentence context and explain why changes improve the text. Make your fixes sound natural and conversational. Return ONLY valid JSON with no additional text."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=0.3,
-                max_tokens=estimated_output,
-                response_format={"type": "json_object"}
-            )
-            
-            # Calculate actual cost
-            actual_cost = self.estimate_cost(
-                response.usage.prompt_tokens,
-                response.usage.completion_tokens
-            )
-            
-            # Track costs
-            self.total_cost += actual_cost
-            self.total_issues_enhanced += len(issues_to_enhance)
-            
-            print(f"[LLMEnhancer] Batch complete - Actual cost: ${actual_cost:.4f}")
-            print(f"[LLMEnhancer] Total session cost: ${self.total_cost:.4f}, Enhanced: {self.total_issues_enhanced}")
-            
-            # Parse and apply enhancements
-            results = json.loads(response.choices[0].message.content)
-            enhanced_issues = self._apply_batch_enhancements(issues, issues_to_enhance, results)
-            
-            return enhanced_issues, actual_cost
-            
-        except json.JSONDecodeError as e:
-            print(f"⚠️ [LLMEnhancer] Failed to parse LLM response: {e}")
-            return issues, 0.0
-        except Exception as e:
-            print(f"⚠️ [LLMEnhancer] Batch enhancement error: {e}")
-            return issues, 0.0
+            try:
+                # Build batch prompt for this chunk
+                prompt = self._build_batch_prompt(chunk)
+                
+                # Estimate cost for this chunk (increase output tokens for enhanced problem descriptions)
+                input_tokens = self.count_tokens(prompt)
+                estimated_output = len(chunk) * 200  # Increased from 100 to 200 for better problem descriptions
+                estimated_cost = self.estimate_cost(input_tokens, estimated_output)
+                
+                # Check cost limit (skip break when enhance_all is enabled)
+                if total_cost + estimated_cost > self.max_cost_per_doc and not self.enhance_all:
+                    print(f"⚠️ [LLMEnhancer] Estimated cost ${total_cost + estimated_cost:.2f} exceeds limit ${self.max_cost_per_doc:.2f}")
+                    break
+                
+                print(f"[LLMEnhancer] Chunk {chunk_number} enhancement (est. ${estimated_cost:.4f}, {len(chunk)} issues)")
+                
+                # Call LLM with retry logic
+                response = await self._make_llm_request_with_retry(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a professional writing coach and grammar expert. Provide contextual, human-like corrections that reference the sentence context and explain why changes improve the text. Make your fixes sound natural and conversational. Return ONLY valid JSON with no additional text."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    max_tokens=estimated_output,
+                    temperature=0.3,
+                    response_format={"type": "json_object"}
+                )
+                
+                # Calculate actual cost for this chunk
+                actual_cost = self.estimate_cost(
+                    response.usage.prompt_tokens,
+                    response.usage.completion_tokens
+                )
+                
+                # Track costs
+                total_cost += actual_cost
+                self.total_cost += actual_cost
+                self.total_issues_enhanced += len(chunk)
+                
+                print(f"[LLMEnhancer] Chunk {chunk_number} complete - Actual cost: ${actual_cost:.4f}")
+                
+                # Parse and apply enhancements for this chunk
+                try:
+                    results = json.loads(response.choices[0].message.content)
+                    enhanced_issues = self._apply_batch_enhancements(enhanced_issues, chunk, results)
+                except json.JSONDecodeError as e:
+                    print(f"⚠️ [LLMEnhancer] JSON parsing error in chunk {chunk_number}: {e}")
+                    print(f"Raw response: {response.choices[0].message.content[:200]}...")
+                    continue
+            except Exception as e:
+                error_msg = str(e)
+                if "timed out" in error_msg.lower():
+                    print(f"⚠️ [LLMEnhancer] Chunk {chunk_number} timeout after {self.request_timeout}s with {self.max_retries} retries")
+                elif "rate limit" in error_msg.lower():
+                    print(f"⚠️ [LLMEnhancer] Chunk {chunk_number} rate limited: {error_msg}")
+                else:
+                    print(f"⚠️ [LLMEnhancer] Chunk {chunk_number} error: {error_msg}")
+                continue
+        
+        print(f"[LLMEnhancer] All chunks complete - Total cost: ${total_cost:.4f}")
+        print(f"[LLMEnhancer] Total session cost: ${self.total_cost:.4f}, Enhanced: {self.total_issues_enhanced}")
+        
+        return enhanced_issues, total_cost
     
     def _build_enhancement_prompt(
         self, 
@@ -364,16 +458,23 @@ class LLMEnhancer:
 
 **Category-Specific Guidance:** {category_guidance}
 
+**IMPORTANT RULES:**
+- DO NOT change URLs (https://, http://) - keep them lowercase as they are
+- DO NOT capitalize protocol prefixes in URLs (https:// should remain https://)
+- URLs should maintain their original formatting
+
 **Task:** Provide a better, more natural correction that fits the sentence context and sounds human-written.
 
 Please provide:
-1. improved_fix: A more natural, contextual correction that references the full sentence (e.g., "In this sentence, replace 'start off' with 'start' because...")
-2. corrected_sentence: The complete sentence with the fix applied
-3. explanation: Why this correction improves the text in this specific context (maximum 1 sentence)
-4. confidence: Your confidence in this correction (0.0-1.0)
+1. improved_problem: A more contextual and helpful problem description that explains why this is an issue in this specific sentence context
+2. improved_fix: A more natural, contextual correction that references the full sentence (e.g., "In this sentence, replace 'start off' with 'start' because...")
+3. corrected_sentence: The complete sentence with the fix applied
+4. explanation: Why this correction improves the text in this specific context (maximum 1 sentence)
+5. confidence: Your confidence in this correction (0.0-1.0)
 
 Return ONLY valid JSON (no other text):
 {{
+    "improved_problem": "The phrase 'a lot of' is unnecessarily wordy and can be simplified to 'many' for more concise writing",
     "improved_fix": "In this sentence, replace 'start off' with 'start' because it's more concise and direct",
     "corrected_sentence": "The complete corrected sentence goes here",
     "explanation": "This makes the sentence more direct and professional",
@@ -419,19 +520,31 @@ For each issue, provide a better fix that references the sentence context and so
 
 {category_info}
 
-**Instructions:** Make the fixes more contextual and natural. Instead of just "replace X with Y", provide guidance like "In this sentence, replace 'start off' with 'start' because it's more direct and professional." For each issue, also provide the complete corrected sentence.
+**IMPORTANT RULES:**
+- DO NOT change URLs (https://, http://) - keep them lowercase as they are
+- DO NOT capitalize protocol prefixes in URLs (https:// should remain https://)
+- URLs should maintain their original formatting
+
+**Instructions:** For each issue, provide:
+1. A more contextual and helpful problem description that explains why this is an issue in the specific sentence context
+2. A more natural, contextual fix that references the sentence context and sounds human-written
+3. The complete corrected sentence
+
+Make both the problem description and fix more contextual and natural. Instead of generic descriptions like "Awkward phrasing: 'a lot of' can be simplified to 'many'", provide contextual explanations like "The phrase 'a lot of' is unnecessarily wordy in this context and can be simplified to 'many' for more concise writing."
 
 Return ONLY valid JSON (no other text):
 {{
     "enhancements": [
         {{
             "issue_id": 1,
+            "improved_problem": "The phrase 'a lot of' is unnecessarily wordy and can be simplified to 'many' for more concise writing",
             "improved_fix": "In this sentence, replace 'start off' with 'start' because it's more concise and direct",
             "corrected_sentence": "The complete corrected sentence goes here",
             "explanation": "This makes the sentence more professional and to the point"
         }},
         {{
             "issue_id": 2,
+            "improved_problem": "The word 'commence' is overly formal for this context and 'begin' would sound more natural",
             "improved_fix": "In this context, use 'begin' instead of 'commence' for a more natural tone",
             "corrected_sentence": "The complete corrected sentence goes here",
             "explanation": "This improves readability and sounds more conversational"
@@ -455,15 +568,18 @@ Return ONLY valid JSON (no other text):
         
         # Update fix with improved version
         if "improved_fix" in result and result["improved_fix"]:
-            enhanced.fix = f"✨ {result['improved_fix']}"
+            enhanced.fix = result["improved_fix"]
         
         # Set corrected sentence if provided
         if "corrected_sentence" in result and result["corrected_sentence"]:
             enhanced.corrected_sentence = result["corrected_sentence"]
         
-        # Add explanation to problem
-        if "explanation" in result and result["explanation"]:
-            enhanced.problem = f"{enhanced.problem}\n💡 AI Insight: {result['explanation']}"
+        # Enhance the problem description itself
+        if "improved_problem" in result and result["improved_problem"]:
+            enhanced.problem = result["improved_problem"]
+        elif "explanation" in result and result["explanation"]:
+            # Fallback to adding explanation if no improved problem provided
+            enhanced.problem = f"{enhanced.problem}\nAI Insight: {result['explanation']}"
         
         # Update confidence if provided and higher
         if "confidence" in result:
@@ -516,15 +632,18 @@ Return ONLY valid JSON (no other text):
                 
                 # Apply improved fix
                 if "improved_fix" in enh and enh["improved_fix"]:
-                    enhanced.fix = f"✨ {enh['improved_fix']}"
+                    enhanced.fix = enh["improved_fix"]
                 
                 # Set corrected sentence if provided
                 if "corrected_sentence" in enh and enh["corrected_sentence"]:
                     enhanced.corrected_sentence = enh["corrected_sentence"]
                 
-                # Add explanation
-                if "explanation" in enh and enh["explanation"]:
-                    enhanced.problem = f"{enhanced.problem}\n💡 AI Insight: {enh['explanation']}"
+                # Enhance the problem description itself
+                if "improved_problem" in enh and enh["improved_problem"]:
+                    enhanced.problem = enh["improved_problem"]
+                elif "explanation" in enh and enh["explanation"]:
+                    # Fallback to adding explanation if no improved problem provided
+                    enhanced.problem = f"{enhanced.problem}\nAI Insight: {enh['explanation']}"
                 
                 enhanced_issues.append(enhanced)
             else:

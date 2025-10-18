@@ -7,7 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - 2024-01-XX
 
+### Fixed
+- **LLM Enhancement Emoji Removal**: Removed ✨ emoji from LLM enhanced issues in reports and frontend
+  - Enhanced problem descriptions and fixes no longer display with sparkle emoji prefix
+  - Clean, professional appearance without decorative emojis
+  - AI Insight fallback also removed 💡 emoji for consistency
+- **Grammar Checker URL Capitalization Detection**: Fixed grammar checker incorrectly flagging URLs as capitalization issues
+  - Updated capitalisation patterns to exclude URLs (https://, http://, www.)
+  - First word capitalization pattern now uses negative lookahead: `^(?!https?://|www\.)([a-z])`
+  - Sentence capitalization pattern now excludes URLs after punctuation: `(?<!\.)([.!?])\s+(?!https?://|www\.)([a-z])`
+  - URLs are no longer flagged as capitalization issues in the grammar checker
+- **LLM Enhancement URL Capitalization Issue**: Fixed LLM enhancer incorrectly capitalizing URLs
+  - Added explicit rules to prevent capitalization of URL protocol prefixes (https://, http://)
+  - URLs now maintain their original lowercase formatting in enhanced corrections
+  - Enhanced prompts include specific instructions to preserve URL formatting
+- **Report Format Category Display**: Improved category display format in generated reports
+  - Category now shows inline with problem description: "Problem: Capitalisation → enhanced description"
+  - Corrected sentence format updated to: "Corrected sentence: "quoted text""
+  - Removed redundant separate category line for cleaner formatting
+- **LLM Enhancement Coverage Issue**: Fixed LLM enhancer only processing subset of issues due to high confidence thresholds
+  - Lowered confidence thresholds to ensure ALL grammar issue categories get enhanced
+  - High priority categories (awkward_phrasing, tense_consistency, etc.): now enhanced if confidence < 95% (was 90%)
+  - Medium priority categories (redundancy, capitalisation, etc.): now enhanced if confidence < 98% (was 95%)
+  - Lower priority categories (punctuation, spelling): now enhanced if confidence < 99% (was 98%)
+  - Default threshold: now enhanced if confidence < 98% (was 95%)
+  - This ensures comprehensive LLM enhancement coverage across all grammar categories
+- **LLM Enhancement Timeout Issues**: Fixed request timeouts in LLM enhancement service
+  - Added configurable timeout settings (default 60s) via `LLM_REQUEST_TIMEOUT` environment variable
+  - Implemented retry logic with exponential backoff (default 3 retries) via `LLM_MAX_RETRIES` and `LLM_RETRY_DELAY`
+  - Enhanced error handling with specific timeout and rate limit error messages
+  - Added proper asyncio timeout handling using `asyncio.wait_for()`
+  - Improved reliability for batch enhancement processing
+  - **Batch Processing Chunking**: Implemented chunking to process large batches without timeouts
+    - Large batches are now processed in chunks of 10 issues to prevent timeouts
+    - Each chunk is processed independently with proper error handling
+    - Failed chunks don't affect other chunks, improving overall reliability
+    - Reduced default batch size from 50 to 15 issues for better stability
+  - **Problem Description Enhancement**: LLM now enhances problem descriptions for better context
+    - Enhanced problem descriptions provide more contextual explanations (e.g., "The phrase 'a lot of' is unnecessarily wordy in this context and can be simplified to 'many' for more concise writing")
+    - Improved prompts to request both enhanced problem descriptions and fixes
+    - Increased token limits for batch processing to accommodate longer enhanced descriptions
+    - Better JSON parsing error handling for batch responses
+
 ### Added
+- **Agreement Category (placeholder)**: Added `agreement` to available categories list
+  - Visible in `/categories` API and frontend checkboxes
+  - Subject–verb agreement rules remain disabled due to past false positives
+  - Enables future targeted work without breaking current behavior
 - **Article/Specificity Category**: New grammar category for article usage and specificity issues
   - Added `article_specificity` category to grammar checker with comprehensive pattern matching
   - Detects article errors (a/an usage) with smart vowel/consonant sound recognition
@@ -52,6 +98,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added category-specific guidance prompts for more targeted AI corrections
   - Increased batch processing limit from 20 to 50 issues to handle more comprehensive enhancement
   - Enhanced prompts with category-specific instructions for better contextual corrections
+  - Removed 50-issue cap: enhancer now processes ALL detected issues by default
+  - Added `LLM_ENHANCE_ALL` flag (default true) to force full coverage regardless of cost cap
+  - Grammar checker now requests unlimited enhancements (`max_issues=None`); chunking prevents timeouts
+  - Cost cap (`LLM_MAX_COST_PER_DOCUMENT`) is respected unless `LLM_ENHANCE_ALL` is true
 
 ### Documentation
 - **LLM Implementation Guide**: Comprehensive guide for integrating AI-powered grammar enhancements
@@ -525,6 +575,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated category dropdown filters to include all new categories
 
 ### Fixed
+### Infrastructure
+- **Docker Frontend Build**: Switched `docker/Dockerfile.frontend` to pnpm with Corepack, added `REACT_APP_API_URL` build-arg for correct API base at build time, and replaced runtime env usage.
+- **docker-compose (dev)**: Passed build arg `REACT_APP_API_URL=http://backend:8000` to frontend image; removed ineffective runtime env; added backend `--reload` command for hot reload; kept bind mount for backend code and persisted `uploads` and `temp_files` as named volumes.
+- **docker-compose (prod)**: Passed build arg `REACT_APP_API_URL=http://localhost/api` for nginx reverse proxy; set `NODE_ENV=production`; nginx continues to proxy `/api` to backend.
+- **Nginx**: Confirmed reverse proxy config routes `/api` to `backend` and SPA routes to `frontend`; no functional changes.
 - **May Modal Verb False Positive**: Fixed incorrect capitalization of "may" when used as a modal verb
   - "whatever they may be" now correctly keeps "may" lowercase (modal verb)
   - "in May" or "May 15" correctly capitalizes "May" (the month)

@@ -329,28 +329,33 @@ class ReportGenerator:
             doc.add_paragraph(line_header, style="CustomIssueHeader")
 
             # Text (in italics) - showing the original text
+            original = issue.original_text
+            # Remove smart quotes if present at both ends
+            if original.startswith("“") and original.endswith("”"):
+                original = original[1:-1]
             text_para = doc.add_paragraph(style="CustomIssue")
-            run = text_para.add_run(f"“{issue.original_text}”")
+            run = text_para.add_run(f"“{original}”")
             run.italic = True
 
             # Problem (with bold label) - increased indent for hierarchy
             problem_para = doc.add_paragraph(style="CustomIssue")
             problem_para.paragraph_format.left_indent = Inches(0.25)
-            problem_para.add_run("•   Problem: ").bold = True
+            category_display = issue.category.replace("_", " ").title()
+            problem_para.add_run(f"•   Problem: {category_display} → ").bold = True
             problem_para.add_run(issue.problem)
 
             # Fix (with bold label) - increased indent for hierarchy
             fix_para = doc.add_paragraph(style="CustomIssue")
             fix_para.paragraph_format.left_indent = Inches(0.25)
-            fix_para.add_run("•   Fix: ").bold = True
+            fix_para.add_run("•   Fix: → ").bold = True
             fix_para.add_run(issue.fix)
 
             # Corrected sentence (if different from fix) (with bold label)
             if issue.corrected_sentence and issue.corrected_sentence != issue.fix:
                 corrected_para = doc.add_paragraph(style="CustomIssue")
                 corrected_para.paragraph_format.left_indent = Inches(0.25)
-                corrected_para.add_run("•   Suggested correction: ").bold = True
-                corrected_para.add_run(issue.corrected_sentence)
+                corrected_para.add_run("•   Corrected sentence: → ").bold = True
+                corrected_para.add_run(f'“{issue.corrected_sentence}”')
 
             # Add spacing between issues
             doc.add_paragraph("", style="CustomIssue")
@@ -389,9 +394,10 @@ class ReportGenerator:
             )
 
             # Problem (with bold label) - increased indent for hierarchy
+            category_display = issue.category.replace("_", " ").title()
             story.append(
                 Paragraph(
-                    f"&nbsp;&nbsp;&nbsp;• <b>Problem:</b> {issue.problem}",
+                    f"&nbsp;&nbsp;&nbsp;• <b>Problem: {category_display} →</b> {issue.problem}",
                     styles["CustomIssue"],
                 )
             )
@@ -399,7 +405,7 @@ class ReportGenerator:
             # Fix (with bold label) - increased indent for hierarchy
             story.append(
                 Paragraph(
-                    f"&nbsp;&nbsp;&nbsp;• <b>Fix:</b> {issue.fix}",
+                    f"&nbsp;&nbsp;&nbsp;• <b>Fix: →</b> {issue.fix}",
                     styles["CustomIssue"],
                 )
             )
@@ -408,19 +414,11 @@ class ReportGenerator:
             if issue.corrected_sentence and issue.corrected_sentence != issue.fix:
                 story.append(
                     Paragraph(
-                        f"&nbsp;&nbsp;&nbsp;• <b>Full correction:</b> {issue.corrected_sentence}",
+                        f"&nbsp;&nbsp;&nbsp;• <b>Corrected sentence: →</b> \"{issue.corrected_sentence}\"",
                         styles["CustomIssue"],
                     )
                 )
 
-            # Category (with bold label)
-            category_display = issue.category.replace("_", " ").title()
-            story.append(
-                Paragraph(
-                    f"&nbsp;&nbsp;&nbsp;• <b>Category:</b> {category_display}",
-                    styles["CustomIssue"],
-                )
-            )
 
             # Add spacing
             story.append(Spacer(1, 16))
