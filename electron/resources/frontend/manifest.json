@@ -1,0 +1,24 @@
+{
+  "short_name": "Grammar Correction",
+  "name": "AI-Powered Grammar Correction App",
+  "description": "Upload Word documents for comprehensive grammar and style analysis",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#3B82F6",
+  "background_color": "#ffffff",
+  "categories": ["productivity", "education", "utilities"],
+  "lang": "en",
+  "orientation": "portrait-primary"
+}

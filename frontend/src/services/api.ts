@@ -7,7 +7,50 @@ import {
   OutputFormatEnum
 } from '../types';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+// Detect if running in Electron and get backend URL
+declare global {
+  interface Window {
+    electronAPI?: {
+      getBackendUrl: () => Promise<string>;
+      getAppVersion: () => Promise<string>;
+      checkForUpdates: () => Promise<void>;
+      onUpdateStatus: (callback: (data: any) => void) => void;
+      onUpdateProgress: (callback: (data: any) => void) => void;
+      isElectron: boolean;
+      platform: string;
+    };
+  }
+}
+
+// Function to get the appropriate API base URL
+async function getApiBaseUrl(): Promise<string> {
+  // Check if running in Electron
+  if (window.electronAPI?.isElectron) {
+    try {
+      const backendUrl = await window.electronAPI.getBackendUrl();
+      console.log('Running in Electron, backend URL:', backendUrl);
+      return backendUrl;
+    } catch (error) {
+      console.error('Failed to get backend URL from Electron:', error);
+    }
+  }
+  
+  // Fall back to environment variable or default
+  return process.env.REACT_APP_API_URL || 'http://localhost:8000';
+}
+
+// Initialize API_BASE_URL - will be set asynchronously
+let API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
+// Set the correct URL when running in Electron
+if (window.electronAPI?.isElectron) {
+  getApiBaseUrl().then(url => {
+    API_BASE_URL = url;
+    // Update axios instances with new base URL
+    api.defaults.baseURL = url;
+    uploadApi.defaults.baseURL = url;
+  });
+}
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -204,7 +247,9 @@ export const connectWebSocket = (
   onError?: (error: Event) => void,
   onClose?: () => void
 ): WebSocket => {
-  const wsUrl = API_BASE_URL.replace('http', 'ws');
+  // Use the current API_BASE_URL which may have been updated for Electron
+  const baseUrl = api.defaults.baseURL || API_BASE_URL;
+  const wsUrl = baseUrl.replace('http', 'ws');
   const ws = new WebSocket(`${wsUrl}/ws/${taskId}`);
   
   ws.onopen = () => {
