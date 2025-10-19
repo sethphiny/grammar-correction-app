@@ -21,6 +21,7 @@ from services.document_parser import DocumentParser
 from services.grammar_checker import GrammarChecker
 from services.report_generator import ReportGenerator
 from services.progress_tracker import ProgressTracker
+from services.performance_logger import get_performance_logger
 from models.schemas import (
     UploadResponse,
     ProcessingStatus,
@@ -97,7 +98,8 @@ async def upload_document(
     output_filename: str = Form(None),
     output_format: str = Form("docx"),
     categories: str = Form(None),  # Comma-separated category IDs
-    use_llm_enhancement: str = Form("false")  # AI enhancement flag
+    use_llm_enhancement: str = Form("false"),  # AI enhancement flag
+    use_llm_detection: str = Form("false")  # AI detection flag (supplementary)
 ):
     """
     Upload a document for grammar checking
@@ -107,7 +109,8 @@ async def upload_document(
         output_filename: Optional output filename (form field)
         output_format: Output format (docx or pdf) (form field)
         categories: Optional comma-separated list of category IDs to check (e.g., "redundancy,grammar") (form field)
-        use_llm_enhancement: Enable AI-powered enhancement (~$0.01-0.03 per MB) (form field)
+        use_llm_enhancement: Enable AI-powered enhancement of fixes (~$0.01-0.03 per MB) (form field)
+        use_llm_detection: Enable AI-powered detection for subtle issues (~$0.05-0.15 per MB) (form field)
     """
     # Validate file type
     if not file.filename.lower().endswith(('.doc', '.docx')):
@@ -142,9 +145,11 @@ async def upload_document(
     else:
         print(f"[{task_id}] No categories specified - will check all categories")
     
-    # Parse LLM enhancement parameter
+    # Parse LLM parameters
     llm_enhancement_enabled = use_llm_enhancement.lower() in ('true', '1', 'yes')
+    llm_detection_enabled = use_llm_detection.lower() in ('true', '1', 'yes')
     print(f"[{task_id}] LLM Enhancement: {llm_enhancement_enabled}")
+    print(f"[{task_id}] LLM Detection: {llm_detection_enabled}")
     
     # Store task information
     processing_tasks[task_id] = {
@@ -154,6 +159,7 @@ async def upload_document(
         "output_format": output_format,
         "categories": enabled_categories,
         "use_llm_enhancement": llm_enhancement_enabled,
+        "use_llm_detection": llm_detection_enabled,
         "progress": 0,
         "result": None,
         "error": None
@@ -170,7 +176,8 @@ async def upload_document(
         output_filename,
         output_format,
         enabled_categories,
-        llm_enhancement_enabled
+        llm_enhancement_enabled,
+        llm_detection_enabled
     )
     
     print(f"[{task_id}] Background task added")
@@ -283,14 +290,15 @@ async def process_document_with_delay(
     output_filename: str,
     output_format: str,
     enabled_categories: list = None,
-    use_llm_enhancement: bool = False
+    use_llm_enhancement: bool = False,
+    use_llm_detection: bool = False
 ):
     """
     Process document with a small delay to ensure WebSocket connects first
     """
     # Wait 1 second to allow WebSocket connection to establish
     await asyncio.sleep(1)
-    await process_document(task_id, file_content, original_filename, output_filename, output_format, enabled_categories, use_llm_enhancement)
+    await process_document(task_id, file_content, original_filename, output_filename, output_format, enabled_categories, use_llm_enhancement, use_llm_detection)
 
 async def process_document(
     task_id: str,
@@ -299,7 +307,8 @@ async def process_document(
     output_filename: str,
     output_format: str,
     enabled_categories: list = None,
-    use_llm_enhancement: bool = False
+    use_llm_enhancement: bool = False,
+    use_llm_detection: bool = False
 ):
     """
     Background task to process the uploaded document with real-time WebSocket updates
@@ -312,14 +321,37 @@ async def process_document(
         output_format: Output format (docx or pdf)
         enabled_categories: Optional list of category IDs to check
         use_llm_enhancement: Enable AI-powered enhancement
+        use_llm_detection: Enable AI-powered detection (supplementary)
     """
+    # Initialize performance logger
+    perf_logger = get_performance_logger()
+    perf_logger.start_task(
+        task_id=task_id,
+        filename=original_filename,
+        file_size=len(file_content),
+        categories=enabled_categories or [],
+        ai_mode={"enhancement": use_llm_enhancement, "detection": use_llm_detection}
+    )
+    
+    # Determine AI mode for frontend display
+    if use_llm_detection and use_llm_enhancement:
+        ai_mode_name = "premium"  # Full AI mode
+    elif use_llm_enhancement:
+        ai_mode_name = "competitive"  # AI Enhancement only
+    else:
+        ai_mode_name = "free"  # Pattern-only
+    
     try:
         print(f"[{task_id}] Starting document processing...")
+        print(f"[{task_id}] AI Mode: {ai_mode_name}")
         
         # Send WebSocket update: Starting
         await manager.send_progress(task_id, {
             "type": "starting",
-            "message": "Starting analysis..."
+            "message": "Starting analysis...",
+            "ai_mode": ai_mode_name,
+            "llm_enhancement": use_llm_enhancement,
+            "llm_detection": use_llm_detection
         })
         
         # Update status
@@ -336,11 +368,17 @@ async def process_document(
         })
         
         # Parse document
+        perf_logger.start_stage("parsing")
         document_data = await document_parser.parse_document(
             file_content, original_filename
         )
+        perf_logger.end_stage("parsing", {
+            "total_lines": document_data.total_lines if document_data else 0,
+            "total_sentences": document_data.total_sentences if document_data else 0
+        })
         
         if not document_data:
+            perf_logger.log_error("ParseError", "Failed to parse document", "parsing")
             raise Exception("Failed to parse document")
         
         print(f"[{task_id}] Parsed: {document_data.total_lines} lines")
@@ -373,15 +411,33 @@ async def process_document(
         })
         
         # Grammar checking with real-time progress
+        perf_logger.start_stage("checking")
+        
+        # Track timing for progress updates
+        import time
+        stage_start_time = time.time()
+        
         issues = []
         async def progress_callback(line_num: int, total_lines: int, current_issues: int):
-            """Send real-time updates during grammar checking"""
+            """Send real-time updates during grammar checking with timing data"""
             progress = 30 + int((line_num / total_lines) * 50)
             processing_tasks[task_id]["progress"] = progress
             processing_tasks[task_id]["lines_analyzed"] = line_num
             processing_tasks[task_id]["issues_found"] = current_issues
             
-            # Send WebSocket update
+            # Calculate timing stats
+            elapsed_seconds = int(time.time() - stage_start_time)
+            processing_speed = line_num / elapsed_seconds if elapsed_seconds > 0 else 0
+            
+            # Estimate remaining time based on progress
+            total_elapsed = int(time.time() - perf_logger.current_task["start_time"]) if perf_logger.current_task else elapsed_seconds
+            if progress > 5:  # Only estimate after some progress
+                estimated_total = total_elapsed / (progress / 100) if progress > 0 else 0
+                estimated_remaining = max(0, int(estimated_total - total_elapsed))
+            else:
+                estimated_remaining = 0
+            
+            # Send WebSocket update with timing data
             await manager.send_progress(task_id, {
                 "type": "progress",
                 "status": "checking",
@@ -389,17 +445,50 @@ async def process_document(
                 "total_lines": total_lines,
                 "lines_analyzed": line_num,
                 "issues_found": current_issues,
-                "message": f"Analyzing line {line_num}/{total_lines}..."
+                "message": f"Analyzing line {line_num}/{total_lines}...",
+                "timing": {
+                    "elapsed_seconds": total_elapsed,
+                    "processing_speed": round(processing_speed, 2),
+                    "estimated_remaining_seconds": estimated_remaining
+                },
+                "ai_mode": ai_mode_name
             })
+        
+        # Enhancement progress callback for WebSocket updates
+        async def enhancement_progress_callback(data):
+            await manager.send_progress(task_id, data)
         
         issues, enhancement_metadata = await grammar_checker.check_document(
             document_data,
             progress_callback=progress_callback,
             enabled_categories=enabled_categories,
-            use_llm_enhancement=use_llm_enhancement
+            use_llm_enhancement=use_llm_enhancement,
+            use_llm_detection=use_llm_detection,
+            enhancement_progress_callback=enhancement_progress_callback
         )
         
+        perf_logger.end_stage("checking", {
+            "issues_found": len(issues),
+            "lines_processed": document_data.total_lines,
+            "llm_detection_enabled": enhancement_metadata.get("llm_detection_enabled", False),
+            "llm_enhancement_enabled": enhancement_metadata.get("llm_enabled", False),
+            "issues_detected_by_llm": enhancement_metadata.get("issues_detected_by_llm", 0),
+            "issues_enhanced": enhancement_metadata.get("issues_enhanced", 0)
+        })
+        
+        # Log API usage if LLM was used
+        if enhancement_metadata.get("cost", 0) > 0:
+            perf_logger.log_api_call(
+                api_type="llm_full" if enhancement_metadata.get("llm_detection_enabled") else "llm_enhancement",
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                cost=enhancement_metadata.get("cost", 0),
+                success=enhancement_metadata.get("warning") is None
+            )
+        
         print(f"[{task_id}] Found {len(issues)} issues")
+        
+        if enhancement_metadata.get("llm_detection_enabled"):
+            print(f"[{task_id}] 🔍 LLM detected {enhancement_metadata.get('issues_detected_by_llm', 0)} additional issues")
         
         if enhancement_metadata.get("llm_enabled"):
             print(f"[{task_id}] ✨ LLM enhanced {enhancement_metadata.get('issues_enhanced', 0)} issues")
@@ -426,12 +515,17 @@ async def process_document(
         })
         
         # Generate report
+        perf_logger.start_stage("generating")
         report_path = await report_generator.generate_report(
             issues,
             document_data,
             output_filename,
             output_format
         )
+        perf_logger.end_stage("generating", {
+            "output_format": output_format,
+            "report_size": os.path.getsize(report_path) if os.path.exists(report_path) else 0
+        })
         
         print(f"[{task_id}] Report generated: {report_path}")
         
@@ -456,12 +550,35 @@ async def process_document(
             "message": "Processing completed successfully!"
         })
         
+        # Complete performance logging
+        summary = grammar_checker.get_issues_summary(issues)
+        perf_data = perf_logger.end_task({
+            "total_issues": len(issues),
+            "lines_with_issues": summary.get("lines_with_issues", 0),
+            "sentences_with_issues": summary.get("sentences_with_issues", 0),
+            "categories": summary.get("categories", {}),
+            "llm_cost": enhancement_metadata.get("cost", 0)
+        })
+        
+        # Check for bottlenecks and log recommendations
+        bottlenecks = perf_logger.get_bottlenecks(threshold_percentage=25.0)
+        if bottlenecks:
+            print(f"[{task_id}] ⚠️  Performance bottlenecks detected:")
+            for bn in bottlenecks:
+                print(f"         {bn['stage']}: {bn['duration_seconds']:.2f}s ({bn['percentage']:.1f}%)")
+                print(f"         → {bn['recommendation']}")
+        
         print(f"[{task_id}] Processing completed successfully")
+        print(f"[PerfLog] Performance data saved to logs/performance/")
         
     except Exception as e:
         print(f"[{task_id}] Error: {e}")
         import traceback
         traceback.print_exc()
+        
+        # Log error
+        perf_logger.log_error("ProcessingError", str(e))
+        perf_logger.end_task()
         
         processing_tasks[task_id]["status"] = "error"
         processing_tasks[task_id]["error"] = str(e)

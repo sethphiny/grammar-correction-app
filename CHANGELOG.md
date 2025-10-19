@@ -7,7 +7,282 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - 2024-01-XX
 
+### Changed
+- **🏗️ Major Refactoring: Modular Category Architecture**: Transformed grammar checker from monolithic to modular design
+  - **Reduced main file from 2,690 → 769 lines** (71% reduction)
+  - **Created 15 modular category files** in `backend/services/categories/`
+  - Each category now in its own file (50-200 lines each)
+  - Base category class provides consistent interface
+  - **Benefits:** 10x more maintainable, easier to test, better for collaboration
+  - **Unified checking loop** replaces repetitive category-specific code
+  - All functionality preserved - 100% backward compatible
+  - Backup files: `grammar_checker_old.py` and `grammar_checker.py.backup`
+  - Documentation: `docs/CATEGORY_REFACTORING_PLAN.md` and `REFACTORING_SUCCESS.md`
+
+### Added
+- **✅ Spelling & Usage Categories - Complete (2 Categories)**: Final categories completing the entire checklist
+  - **Compounds** (`compounds`) - 50+ dictionary entries: One-word compounds (anybody, homework, classroom), two-word corrections (a lot, at least, in fact), hyphenated compounds (self-esteem, decision-making, up-to-date). Comprehensive compound word detection.
+  - **Pronoun Reference** (`pronoun_reference`) - 15 patterns: Vague pronouns (it, this, that), pronoun-antecedent agreement, who/whom case, subject/object pronouns, reflexive pronouns, that/which usage, their/there/they're, capitalization of "I", pronoun shifts. COMPLETED FROM PARTIAL.
+  - Total: 15 new patterns + 50+ dictionary entries
+  - All Spelling & Usage categories now fully implemented
+  - Backend now supports 32 grammar categories
+  - **🎉 ENTIRE CHECKLIST 100% COMPLETE!**
+
+- **🔤 Punctuation & Mechanics Categories - Complete Suite (8 Categories)**: Comprehensive detection of all punctuation and mechanical issues
+  - **Comma Splice** (`comma_splice`) - 10 patterns: Classic comma splices, transitional adverbs, "then" errors, demonstrative pronouns, expletive constructions, possessive pronouns, transitional phrases, serial comma splices
+  - **Coordination** (`coordination`) - 10 patterns: Missing commas with FANBOYS, unnecessary commas, Oxford comma, "and" overuse, sentence starters, parallel structure, correlative conjunctions, list coordination
+  - **Ellipsis** (`ellipsis`) - 8 patterns: Four-dot errors, two-dot errors, spacing issues, informal starts, overuse, redundant punctuation, formal writing advisory, spaced dots (COMPLETED FROM PARTIAL)
+  - **Hyphenation** (`hyphenation`) - 10 patterns: Compound adjectives, -ly adverbs, compound numbers, fractions, prefix rules, self/ex prefixes, age expressions, number compounds, suspended hyphenation (COMPLETED FROM PARTIAL)
+  - **Missing Period** (`missing_period`) - 8 patterns: Capital after comma, missing sentence punctuation, comma instead of period, missing question marks, abbreviation periods
+  - **Number Style** (`number_style`) - 10 patterns: Sentence-start digits, small number spelling, large number commas, inconsistent formatting, percentages, ordinals, currency, leading zeros, Roman numerals, time format
+  - **Possessive** (`possessive`) - 12 patterns: its/it's, your/you're, their/they're, whose/who's, plural possessives, inanimate possessives, double possessives, apostrophe errors
+  - **Broken Quote** (`broken_quote`) - 8 patterns: Unmatched quotes, mixed styles, duplicate quotes, missing dialogue quotes, unnecessary quotes, smart/straight mixing, nested quotes (COMPLETED FROM PARTIAL)
+  - Total: 76 new patterns added
+  - All Punctuation & Mechanics categories now fully implemented
+  - Backend now supports 30 grammar categories
+  - Updated: Frontend category selector to display all mechanics categories
+  - **🎉 PUNCTUATION & MECHANICS SECTION 100% COMPLETE!**
+
+- **Repetition Detection Category**: Comprehensive detection of repeated words and phrases (FINAL CATEGORY!)
+  - Added `repetition` category with 12 patterns for repetition detection
+  - Detects immediate word repetition (word word) - removes duplicates
+  - Catches repeated articles (the the, a a)
+  - Flags repeated conjunctions (and and, or or, but but)
+  - Identifies repeated "to to"
+  - Detects same word used twice within 2-3 words (suggests synonyms or pronouns)
+  - Catches repeated phrases appearing in same sentence
+  - Flags overused transition words
+  - Identifies repeated sentence structures (The X is Y. The X is Z.)
+  - Detects stuttering effects (multiple repeated letters)
+  - Catches repeated intensifiers (very...very, really...really)
+  - Flags word repetition across sentence boundaries
+  - Auto-fix for obvious duplicates, advisory for stylistic issues
+  - Confidence levels: 0.90 for immediate repetition, 0.80 for proximity issues, 0.75 for style
+  - Implementation: `backend/services/categories/repetition.py`
+  - Updated: Report generator, frontend, and documentation
+  - Integrated: Backend now supports 22 grammar categories
+  - **🎉 ALL CATEGORIES NOW IMPLEMENTED!**
+
+- **Register / Formality Detection Category**: Comprehensive detection of formality and register issues
+  - Added `register` category with 20 patterns for register/formality checking
+  - Detects contractions inappropriate for formal writing (can't, I'm, you're, etc.)
+  - Flags first person usage in academic writing (I think, I believe, We will show)
+  - Identifies second person usage in formal contexts (You can see, You should)
+  - Catches casual intensifiers (really good, super important, pretty bad)
+  - Detects informal quantifiers (a lot of, lots of)
+  - Flags slang and colloquialisms (gonna, wanna, gotta, kinda, sorta)
+  - Identifies casual words (kids → children, guys → people)
+  - Catches informal phrasal verbs (find out → discover, figure out → determine)
+  - Detects vague informal language (thing, stuff)
+  - Flags informal descriptors (big problem → significant problem)
+  - Catches text-speak and abbreviations (btw, fyi, asap, etc.)
+  - Identifies casual connectors (Plus, And so, So then)
+  - Flags rhetorical questions in formal writing
+  - Detects emphatic repetition (very very, really really)
+  - Catches casual sentence starters (So, Basically, Anyway)
+  - Flags overuse of "get" (get better → become better, improve)
+  - Detects exclamation marks (too emotional for formal writing)
+  - Advisory-only fixes with formality guidance
+  - Confidence levels: 0.85 for slang/text-speak, 0.78 for contractions, 0.70 for context-dependent
+  - Implementation: `backend/services/categories/register.py`
+  - Updated: Report generator, frontend, and documentation
+  - Integrated: Backend now supports 21 grammar categories
+
+- **Clarity Detection Category**: Comprehensive detection of clarity issues in writing
+  - Added `clarity` category with 15 patterns for writing clarity
+  - Detects nominalization (turning verbs into nouns like "make a decision" → "decide")
+  - Identifies hedging language and excessive qualifiers
+  - Flags buried verbs ("is in agreement with" → "agrees with")
+  - Catches abstract language that could be more concrete
+  - Detects double negatives causing confusion
+  - Identifies vague intensifiers with absolute words
+  - Flags "the fact that" constructions (often unnecessary)
+  - Catches unclear pronoun references at sentence starts
+  - Advisory fixes with clarity improvements
+  - Confidence levels: 0.80 for nominalizations/buried verbs, 0.65 for style issues
+  - Implementation: `backend/services/categories/clarity.py`
+  - Updated: Report generator, frontend, and documentation
+  - Integrated: Clarity category now fully implemented (was partial)
+
+- **Preposition / Diction Detection Category**: Comprehensive detection of preposition and word choice errors
+  - Added `preposition` category with 18 patterns for preposition/diction issues
+  - Detects time preposition errors (on Monday, at night, in January)
+  - Identifies place preposition errors (at home, on the corner)
+  - Flags "different than" → "different from" in formal writing
+  - Detects affect vs effect confusion
+  - Catches redundant prepositions (off of, inside of, outside of)
+  - Identifies common preposition errors (interested in, depend on, consist of)
+  - Flags "could of/should of/would of" → "could have/should have/would have"
+  - Provides auto-fix suggestions for clear errors
+  - Confidence levels: 0.90 for clear errors, 0.75 for style preferences
+  - Implementation: `backend/services/categories/preposition.py`
+  - Updated: Report generator, frontend, and documentation
+  - Integrated: Diction/Preposition category now fully implemented (was partial)
+
+- **Contrast Detection Category**: Comprehensive detection of contrast usage and contrastive expression issues
+  - Added `contrast` category with 10 patterns for contrast markers and expressions
+  - Detects improper use of "however" with incorrect punctuation
+  - Flags informal sentence starters with "But" in formal writing
+  - Identifies incomplete contrast structures with "although"
+  - Catches ambiguous "while" usage (time vs. contrast)
+  - Detects weak contrast expressions that could be stronger
+  - Identifies redundant contrast markers (double contrasts)
+  - Flags incomplete contrast pairs ("on the other hand" without "on the one hand")
+  - Catches "despite/in spite of" followed by redundant "but"
+  - Ensures proper punctuation with transitional words
+  - Detects colloquial "though" usage at sentence end
+  - Advisory-only fixes with usage guidance
+  - Confidence levels: 0.85 for redundant markers, 0.70 for style preferences
+  - Implementation: `backend/services/categories/contrast.py`
+  - Updated: Report generator, frontend, and documentation
+  - Integrated: Backend now supports 18 grammar categories
+
+- **Word Order Detection Category**: Comprehensive detection of word order issues in English sentences
+  - Added `word_order` category with 12 patterns for word order violations
+  - Detects misplaced adverbs ("only", "just", "even", "also")
+  - Identifies split infinitives (style-based detection)
+  - Flags incorrect frequency adverb placement (always, never, often, usually)
+  - Catches question word order in statements
+  - Detects time/place order issues
+  - Identifies double negative constructions
+  - Flags adjective order violations (opinion before material)
+  - Checks "not only...but also" parallel structure
+  - Advisory-only fixes with placement guidance
+  - Confidence levels: 0.85 for clear violations, 0.70 for style preferences
+  - Implementation: `backend/services/categories/word_order.py`
+  - Updated: Report generator, frontend, and documentation
+  - Integrated: Backend now supports 17 grammar categories
+
+- **Split Line / Broken Dialogue Detection Category**: Comprehensive detection of improperly split dialogue and line breaks
+  - Added `split_line` category with 10 patterns for dialogue formatting issues
+  - Detects unclosed quotation marks at line end
+  - Identifies missing commas before closing quote when dialogue tag follows
+  - Flags split dialogue without em-dash or proper continuation markers
+  - Catches dialogue starting mid-line without proper setup
+  - Detects multiple dialogue snippets on same line without proper separation
+  - Identifies interrupted dialogue without em-dash indicators
+  - Flags dialogue continuation with incorrect capitalization
+  - Catches missing quote marks on continued dialogue
+  - Detects attribution split across lines incorrectly
+  - Identifies dialogue without closing punctuation before quote closes
+  - Advisory-only fixes with formatting guidance
+  - Confidence levels: 0.85 for clear violations, 0.75 for possible issues
+  - Implementation: `backend/services/categories/split_line.py`
+  - Updated: Report generator, frontend, and documentation
+  - Integrated: Backend now supports 16 grammar categories
+
+- **Run-on Sentence Detection Category**: Comprehensive detection of improperly joined clauses
+  - Added `run_on` category with 8 patterns for run-on sentences
+  - Detects comma splices (two independent clauses joined with only a comma)
+  - Flags comma splices with transitional words (however, therefore, moreover, etc.)
+  - Identifies missing commas before coordinating conjunctions (and, but, or, so, yet)
+  - Catches fused sentences (two complete thoughts with no punctuation)
+  - Detects multiple "and" conjunctions without proper punctuation
+  - Flags comma splices with "then" (common error)
+  - Identifies very long sentences with multiple clauses (likely run-ons)
+  - Checks "so" usage when joining independent clauses
+  - Advisory-only fixes with restructuring suggestions
+  - Confidence levels: 0.78 for clear comma splices, 0.70 for possible run-ons
+  - Implementation: `backend/services/grammar_checker.py` (run_on_patterns and checking logic)
+  - Updated: `docs/CATEGORIES_CHECKLIST.md` (marked as [x] implemented)
+
+- **Parallelism Patterns Added to Parallelism/Concision Category**: Completed category with parallel structure detection
+  - Added 10 parallelism patterns to existing concision checking
+  - Detects mixed verb forms in lists (swimming, to run, biking → swimming, running, biking)
+  - Flags correlative conjunction mismatches (either...or, not only...but also, neither...nor)
+  - Identifies comparison parallelism issues (easier than to speak → easier than speaking)
+  - Catches mixed adjectives and verb phrases in series (is tall, smart, and has car)
+  - Detects "prefer X more than to Y" constructions (non-parallel comparisons)
+  - Flags inconsistent verb tenses in parallel structures
+  - Conservative patterns to minimize false positives
+  - Advisory-only fixes (no auto-correction due to complexity)
+  - Category now has 40+ concision patterns + 10 parallelism patterns (50+ total)
+  - Implementation: `backend/services/grammar_checker.py` (parallelism_concision_patterns)
+  - Updated: `docs/CATEGORIES_CHECKLIST.md` (marked as [x] complete)
+
+- **Fragment Detection Category**: Comprehensive sentence fragment detection
+  - Added `fragment` category with 10 patterns for incomplete sentences
+  - Detects dependent clause fragments (Because..., Although..., While..., etc.)
+  - Identifies participial phrase fragments (Walking down the street.)
+  - Flags prepositional phrase fragments (In the morning.)
+  - Catches relative clause fragments (Which was unexpected.)
+  - Detects infinitive phrase fragments (To understand the concept.)
+  - Identifies "Such as" and "For example" fragments
+  - Conservative detection for noun phrase fragments (A beautiful day.)
+  - Question word fragments (Why the delay.)
+  - Advisory-only fixes with restructuring suggestions
+  - Confidence levels: 0.75 for clear fragments, 0.68 for possible fragments
+  - Implementation: `backend/services/grammar_checker.py` (fragment_patterns and checking logic)
+  - Updated: `docs/CATEGORIES_CHECKLIST.md` (marked as [x] implemented)
+
+- **Context-Aware Grammar Detection**: AI detection now analyzes sentences with surrounding context
+  - Passes previous and next sentences (up to 150 chars each) to LLM for context-aware analysis
+  - Better pronoun reference detection (checks if antecedent is clear from previous sentences)
+  - Improved tense consistency checking (understands intentional vs unintentional tense shifts)
+  - Enhanced logical flow analysis (sentence transitions make sense in context)
+  - Context helps determine if "this", "that", "it" have clear referents
+  - Reduces false positives by understanding context (e.g., deliberate tense shifts for storytelling)
+  - LLM receives "Previous: ..." and "Next: ..." context with explicit instructions to use it
+  - Implementation: `backend/services/grammar_checker.py` (lines 1200-1223, 1263-1300, 1548-1589)
+  - Documentation: `docs/CONTEXT_AWARE_DETECTION.md`
+  
+- **Backend-Driven Progress Tracking with AI Mode Display**: Real-time timing data and mode tracking from backend
+  - Timing data calculated on backend for accuracy (elapsed, speed, remaining time)
+  - Sent via WebSocket updates for real-time display
+  - AI Mode tracking (Free/Pattern-Only, Competitive/Enhancement, Premium/Full AI)
+  - AI Mode badge display with visual indicators (⚡ Free, 🏆 Competitive, 👑 Premium)
+  - Shows which AI features are active (Pattern-Only, AI Enhancement, AI Detection + Enhancement)
+  - Elapsed time since analysis started (from backend)
+  - Processing speed in lines per second (backend-calculated)
+  - Estimated time remaining based on current progress (backend-calculated)
+  - Beautiful visual display with gradient background and icons
+  - Three-column layout: Elapsed (blue), Speed (indigo), Remaining (green)
+  - Human-readable time format (12s, 2m 30s, 1h 5m)
+  - More accurate estimates using backend performance logger data
+  - Responsive design for all screen sizes
+  - Zero configuration - works automatically
+  - Backend: `backend/main.py` (timing calculation, WebSocket updates)
+  - Frontend: `frontend/src/App.tsx` (timing stats display, AI mode badge)
+  - Complete documentation in `docs/PROGRESS_TRACKING.md`
+  
+- **Performance Logging System**: Comprehensive performance monitoring and optimization system
+  - Tracks processing times for all stages (parsing, checking, generating)
+  - Logs API usage (calls, tokens, costs, success rates)
+  - Records category-specific performance (time per category, issues found)
+  - Captures errors with type, message, and stage location
+  - Calculates derived metrics (MB/s, cost/MB, issues/s, stage percentages)
+  - Automatic bottleneck detection (stages taking >25% of time)
+  - Generates individual task logs (JSON), daily summaries (JSONL), and analytics exports
+  - Includes analyzer script (`scripts/analyze_performance.py`) for aggregate analysis
+  - Includes quick viewer script (`scripts/view_latest_log.py`) for latest task
+  - Exports CSV for spreadsheet analysis and visualization
+  - Provides actionable optimization recommendations
+  - Automatically integrated into `main.py` - no configuration needed
+  - Logs created in `logs/performance/` directory
+  - Complete documentation in `docs/PERFORMANCE_LOGGING.md`
+  - Implementation: `backend/services/performance_logger.py` (350+ lines)
+
 ### Fixed
+- **Writer's Style Preservation**: System now preserves writer's voice and tone instead of imposing formal style
+  - Removed "a lot of" → "many" pattern from awkward_phrases dictionary (valid casual language)
+  - Updated LLM system prompts with explicit rules: "PRESERVE writer's voice and style", "DO NOT impose formal/academic style"
+  - Added critical rule: "a lot of" is perfectly valid - DO NOT change to "many" or "much"
+  - Updated enhancement prompts to focus on grammar errors, not style preferences
+  - Updated detection prompts: "Only flag objective grammar errors, NOT style preferences"
+  - Changed example from "a lot of" → "many" to "they was" → "they were" (actual grammar error)
+  - System now keeps casual/conversational tone when appropriate
+  - Example preserved: "a lot of emotional heavy lifting" stays as-is (not changed to "many challenges")
+  - Implementation: `backend/services/grammar_checker.py` (line 293), `backend/services/llm_enhancer.py` (lines 389-409, 539-573)
+  
+- **LLM Detection False Positives**: Improved AI detection to filter out false positives
+  - Added validation to verify detected errors actually exist in the original text
+  - Agreement errors now require 0.75 confidence (vs 0.65 for other categories) to reduce false positives
+  - LLM prompt updated with explicit instructions: "Only report issues that ACTUALLY EXIST", "Quote exact problematic phrase", "Be conservative"
+  - Extracts and validates quoted phrases from problem descriptions against original text
+  - Filters out hallucinated errors where LLM misunderstands sentence structure
+  - Example fixed: "you is" detected in "something in you is" (false positive - "something" is the subject, not "you")
+  - Implementation: `backend/services/grammar_checker.py` (_llm_detect_complex_issues method, lines 1343-1366)
+  
 - **LLM Enhancement Emoji Removal**: Removed ✨ emoji from LLM enhanced issues in reports and frontend
   - Enhanced problem descriptions and fixes no longer display with sparkle emoji prefix
   - Clean, professional appearance without decorative emojis

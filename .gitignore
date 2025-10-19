@@ -182,4 +182,5 @@ languagetool-server/
 # spaCy models
 spacy_models/
 
+# Sample documents
 *.docx

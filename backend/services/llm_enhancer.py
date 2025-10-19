@@ -9,7 +9,7 @@ import os
 import json
 import asyncio
 import time
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Callable
 from datetime import datetime
 from models.schemas import GrammarIssue
 from dotenv import load_dotenv
@@ -208,14 +208,17 @@ class LLMEnhancer:
             'tense_consistency', 
             'parallelism_concision',
             'dialogue',
-            'grammar'  # Grammar rules can be context-dependent
+            'grammar',  # Grammar rules can be context-dependent
+            'ambiguous_pronouns',  # Pronoun clarity is context-dependent
+            'dangling_clause'  # Dangling modifiers require sentence restructuring
         }
         
         # Medium priority categories (benefit from AI refinement)
         medium_priority_categories = {
             'redundancy',
             'capitalisation',
-            'article_specificity'
+            'article_specificity',
+            'agreement'  # Subject-verb agreement can have edge cases
         }
         
         # Lower priority categories (usually straightforward but can benefit from AI)
@@ -316,7 +319,8 @@ class LLMEnhancer:
         self,
         issues: List[GrammarIssue],
         document_text: str,
-        max_issues: Optional[int] = None
+        max_issues: Optional[int] = None,
+        progress_callback: Optional[Callable] = None
     ) -> Tuple[List[GrammarIssue], float]:
         """
         Enhance multiple issues in a single API call (more cost-efficient)
@@ -362,6 +366,18 @@ class LLMEnhancer:
             
             print(f"[LLMEnhancer] Processing chunk {chunk_number}/{total_chunks} ({len(chunk)} issues)")
             
+            # Send progress update
+            if progress_callback:
+                await progress_callback({
+                    "type": "enhancement_progress",
+                    "chunk_number": chunk_number,
+                    "total_chunks": total_chunks,
+                    "chunk_size": len(chunk),
+                    "total_issues": len(issues_to_enhance),
+                    "progress_percent": int((chunk_number / total_chunks) * 100),
+                    "message": f"Enhancing chunk {chunk_number}/{total_chunks} ({len(chunk)} issues)..."
+                })
+            
             try:
                 # Build batch prompt for this chunk
                 prompt = self._build_batch_prompt(chunk)
@@ -383,7 +399,17 @@ class LLMEnhancer:
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a professional writing coach and grammar expert. Provide contextual, human-like corrections that reference the sentence context and explain why changes improve the text. Make your fixes sound natural and conversational. Return ONLY valid JSON with no additional text."
+                            "content": """You are a professional writing coach and grammar expert. 
+
+CRITICAL RULES:
+1. PRESERVE the writer's voice and style - DO NOT impose formal/academic style
+2. Only fix actual grammar errors, NOT style preferences
+3. "a lot of" is perfectly valid - DO NOT change to "many" or "much"
+4. Casual/conversational language is acceptable - keep it unless it's an actual error
+5. DO NOT change the writer's tone (casual, conversational, formal, etc.)
+6. Only suggest changes that fix objective grammar issues
+
+Provide contextual, human-like corrections that reference the sentence context and explain why changes improve the text. Return ONLY valid JSON with no additional text."""
                         },
                         {
                             "role": "user",
@@ -458,26 +484,29 @@ class LLMEnhancer:
 
 **Category-Specific Guidance:** {category_guidance}
 
-**IMPORTANT RULES:**
+**CRITICAL RULES:**
+- PRESERVE the writer's voice and style - DO NOT impose formal/academic style
+- Only fix actual grammar errors, NOT style preferences
+- "a lot of" is perfectly valid - DO NOT change it unless it's truly incorrect
+- Casual/conversational language is acceptable - keep the writer's tone
 - DO NOT change URLs (https://, http://) - keep them lowercase as they are
 - DO NOT capitalize protocol prefixes in URLs (https:// should remain https://)
-- URLs should maintain their original formatting
 
-**Task:** Provide a better, more natural correction that fits the sentence context and sounds human-written.
+**Task:** Provide a better, more natural correction that fixes actual grammar errors while preserving the writer's style.
 
 Please provide:
-1. improved_problem: A more contextual and helpful problem description that explains why this is an issue in this specific sentence context
-2. improved_fix: A more natural, contextual correction that references the full sentence (e.g., "In this sentence, replace 'start off' with 'start' because...")
-3. corrected_sentence: The complete sentence with the fix applied
-4. explanation: Why this correction improves the text in this specific context (maximum 1 sentence)
+1. improved_problem: A more contextual and helpful problem description that explains why this is a GRAMMAR ERROR (not just a style preference) in this specific sentence context
+2. improved_fix: A more natural, contextual correction that references the full sentence (e.g., "In this sentence, change 'they was' to 'they were' because...")
+3. corrected_sentence: The complete sentence with the grammar fix applied (preserve the writer's style and tone)
+4. explanation: Why this correction fixes a grammar error in this specific context (maximum 1 sentence)
 5. confidence: Your confidence in this correction (0.0-1.0)
 
 Return ONLY valid JSON (no other text):
 {{
-    "improved_problem": "The phrase 'a lot of' is unnecessarily wordy and can be simplified to 'many' for more concise writing",
-    "improved_fix": "In this sentence, replace 'start off' with 'start' because it's more concise and direct",
-    "corrected_sentence": "The complete corrected sentence goes here",
-    "explanation": "This makes the sentence more direct and professional",
+    "improved_problem": "The verb 'was' doesn't agree with the plural subject 'they'",
+    "improved_fix": "In this sentence, change 'they was' to 'they were' to match the plural subject",
+    "corrected_sentence": "The complete corrected sentence with proper grammar but same style",
+    "explanation": "This fixes the subject-verb agreement while preserving the writer's voice",
     "confidence": 0.95
 }}"""
     
@@ -520,34 +549,38 @@ For each issue, provide a better fix that references the sentence context and so
 
 {category_info}
 
-**IMPORTANT RULES:**
+**CRITICAL RULES:**
+- PRESERVE the writer's voice and style - DO NOT impose formal/academic style
+- Only fix actual grammar errors, NOT style preferences
+- "a lot of" is perfectly valid - DO NOT change to "many" or "much"
+- Casual/conversational language is acceptable - keep the writer's tone
+- DO NOT change the writer's tone (casual, conversational, formal, etc.)
 - DO NOT change URLs (https://, http://) - keep them lowercase as they are
 - DO NOT capitalize protocol prefixes in URLs (https:// should remain https://)
-- URLs should maintain their original formatting
 
 **Instructions:** For each issue, provide:
-1. A more contextual and helpful problem description that explains why this is an issue in the specific sentence context
-2. A more natural, contextual fix that references the sentence context and sounds human-written
-3. The complete corrected sentence
+1. A more contextual problem description that explains why this is a GRAMMAR ERROR (not style preference) in the specific sentence context
+2. A more natural, contextual fix that preserves the writer's voice and style
+3. The complete corrected sentence (with same style/tone, only grammar fixed)
 
-Make both the problem description and fix more contextual and natural. Instead of generic descriptions like "Awkward phrasing: 'a lot of' can be simplified to 'many'", provide contextual explanations like "The phrase 'a lot of' is unnecessarily wordy in this context and can be simplified to 'many' for more concise writing."
+Focus on fixing actual grammar errors while preserving the writer's unique voice and style.
 
 Return ONLY valid JSON (no other text):
 {{
     "enhancements": [
         {{
             "issue_id": 1,
-            "improved_problem": "The phrase 'a lot of' is unnecessarily wordy and can be simplified to 'many' for more concise writing",
-            "improved_fix": "In this sentence, replace 'start off' with 'start' because it's more concise and direct",
-            "corrected_sentence": "The complete corrected sentence goes here",
-            "explanation": "This makes the sentence more professional and to the point"
+            "improved_problem": "The verb 'was' doesn't agree with the plural subject 'they', creating a grammatical error",
+            "improved_fix": "In this sentence, change 'they was' to 'they were' to match the plural subject",
+            "corrected_sentence": "The complete corrected sentence with proper grammar but same style",
+            "explanation": "This fixes the subject-verb agreement while preserving the writer's voice"
         }},
         {{
             "issue_id": 2,
-            "improved_problem": "The word 'commence' is overly formal for this context and 'begin' would sound more natural",
-            "improved_fix": "In this context, use 'begin' instead of 'commence' for a more natural tone",
-            "corrected_sentence": "The complete corrected sentence goes here",
-            "explanation": "This improves readability and sounds more conversational"
+            "improved_problem": "The double negative 'don't need no' creates a grammar error and reverses the intended meaning",
+            "improved_fix": "In this sentence, change 'don't need no' to 'don't need any' to fix the double negative",
+            "corrected_sentence": "The complete corrected sentence with proper grammar but same casual tone",
+            "explanation": "This fixes the grammar error while keeping the casual, conversational style"
         }}
     ]
 }}"""
@@ -672,7 +705,10 @@ Return ONLY valid JSON (no other text):
             'tense_consistency': 'Ensure consistent verb tense throughout the sentence and maintain narrative flow.',
             'spelling': 'Correct spelling errors while considering context and homophones that might change meaning.',
             'parallelism_concision': 'Improve parallel structure and eliminate redundancy. Focus on clear, concise expression.',
-            'article_specificity': 'Fix article usage (a, an, the) and improve specificity by replacing vague language with precise terms. Consider whether definite or indefinite articles are more appropriate.'
+            'article_specificity': 'Fix article usage (a, an, the) and improve specificity by replacing vague language with precise terms. Consider whether definite or indefinite articles are more appropriate.',
+            'agreement': 'Correct subject-verb agreement errors while considering context. Ensure verbs properly match their subjects in number and person.',
+            'ambiguous_pronouns': 'Clarify pronoun references by suggesting more specific nouns or restructuring sentences. Ensure pronouns have clear antecedents.',
+            'dangling_clause': 'Restructure sentences to eliminate dangling modifiers. Ensure modifying phrases clearly connect to the correct subject. Suggest complete sentence rewrites when needed.'
         }
         
         return guidance_map.get(category, 'Improve clarity, correctness, and naturalness of the text.')

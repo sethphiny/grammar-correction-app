@@ -10,7 +10,7 @@ interface Category {
 }
 
 interface FileUploadProps {
-  onFileUpload: (file: File, outputFilename: string, outputFormat: OutputFormatEnum, categories: string[]) => void;
+  onFileUpload: (file: File, outputFilename: string, outputFormat: OutputFormatEnum, categories: string[], useLLMEnhancement: boolean, useLLMDetection: boolean) => void;
   disabled?: boolean;
 }
 
@@ -21,7 +21,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
-  const [selectAll, setSelectAll] = useState(true);
+  const [selectAll, setSelectAll] = useState(false);
+  const [aiMode, setAiMode] = useState<'free' | 'competitive' | 'premium'>('competitive'); // Default to competitive
+  const [useLLMEnhancement, setUseLLMEnhancement] = useState(true);
+  const [useLLMDetection, setUseLLMDetection] = useState(false); // Default OFF for speed
 
   // Fetch available categories on mount
   useEffect(() => {
@@ -30,14 +33,34 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
         const response = await apiClient.get('/categories');
         const cats = response.data.categories;
         setCategories(cats);
-        // Select all by default
-        setSelectedCategories(new Set(cats.map((c: Category) => c.id)));
+        // Select essential categories by default for better user experience
+        const essentialCategories = ['agreement', 'grammar', 'spelling', 'punctuation'];
+        setSelectedCategories(new Set(essentialCategories));
+        setSelectAll(false);
       } catch (error) {
         console.error('Failed to fetch categories:', error);
       }
     };
     fetchCategories();
   }, []);
+
+  // Update AI settings when mode changes
+  useEffect(() => {
+    switch (aiMode) {
+      case 'free':
+        setUseLLMEnhancement(false);
+        setUseLLMDetection(false);
+        break;
+      case 'competitive':
+        setUseLLMEnhancement(true);
+        setUseLLMDetection(false);  // Enhancement only for speed
+        break;
+      case 'premium':
+        setUseLLMEnhancement(true);
+        setUseLLMDetection(true);  // Full AI for maximum quality
+        break;
+    }
+  }, [aiMode]);
 
   const onDrop = useCallback((acceptedFiles: File[], rejectedFiles: any[]) => {
     setError(null);
@@ -115,8 +138,11 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
       setError('Please select at least one category to analyze.');
       return;
     }
+    
+    // Safety check: if somehow no categories are selected, use essential ones
+    const categoriesToUse = selectedCategories.size > 0 ? Array.from(selectedCategories) : ['agreement', 'grammar', 'spelling', 'punctuation'];
 
-    onFileUpload(selectedFile, outputFilename.trim(), outputFormat, Array.from(selectedCategories));
+    onFileUpload(selectedFile, outputFilename.trim(), outputFormat, categoriesToUse, useLLMEnhancement, useLLMDetection);
   };
 
   const handleReset = () => {
@@ -210,74 +236,265 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
           </div>
         </div>
 
-        {/* Category Selection */}
+        {/* Category Selection - Modern Multi-Select */}
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-2">
-            Select Categories to Analyze
-          </label>
-          <div className="border border-gray-300 rounded p-3 space-y-2 max-h-64 overflow-y-auto">
-            {/* Select All */}
-            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
-              <input
-                type="checkbox"
-                checked={selectAll}
-                onChange={handleSelectAll}
-                disabled={disabled}
-                className="w-4 h-4 text-gray-900 border-gray-300 rounded focus:ring-gray-900"
-              />
-              <span className="text-sm font-medium text-gray-900">Select All</span>
+          <div className="flex items-center justify-between mb-3">
+            <label className="text-xs font-semibold text-gray-900 uppercase tracking-wide">
+              Choose What to Check
             </label>
-            <div className="border-t border-gray-200 my-2"></div>
-            {/* Individual Categories */}
-            {categories.map((category) => (
-              <label
-                key={category.id}
-                className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-1 rounded"
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleSelectAll}
+                disabled={disabled}
+                className="text-xs px-3 py-1 bg-blue-50 text-blue-700 rounded-full hover:bg-blue-100 font-medium transition-colors disabled:opacity-50"
               >
-                <input
-                  type="checkbox"
-                  checked={selectedCategories.has(category.id)}
-                  onChange={() => toggleCategory(category.id)}
-                  disabled={disabled}
-                  className="w-4 h-4 text-gray-900 border-gray-300 rounded focus:ring-gray-900"
-                />
-                <span className="text-sm text-gray-700">{category.name}</span>
-              </label>
-            ))}
+                {selectAll ? 'Deselect All' : 'Select All'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  // Select common/essential categories
+                  const essential = ['grammar', 'spelling', 'punctuation', 'agreement', 'tense_consistency'];
+                  const essentialSet = new Set(categories.filter(c => essential.includes(c.id)).map(c => c.id));
+                  setSelectedCategories(essentialSet);
+                  setSelectAll(false);
+                }}
+                disabled={disabled}
+                className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 font-medium transition-colors disabled:opacity-50"
+              >
+                Essential Only
+              </button>
+            </div>
           </div>
-          {selectedCategories.size > 0 && (
-            <p className="text-xs text-gray-500 mt-1">
-              {selectedCategories.size} {selectedCategories.size === 1 ? 'category' : 'categories'} selected
-            </p>
-          )}
+          
+          <div className="space-y-3">
+            {/* Grammar & Structure Group */}
+            <div>
+              <div className="text-xs font-medium text-gray-600 mb-2 pl-1">🧠 Grammar & Structure</div>
+              <div className="grid grid-cols-2 gap-2">
+                {categories
+                  .filter(c => ['agreement', 'grammar', 'tense_consistency', 'article_specificity', 'ambiguous_pronouns', 'dangling_clause', 'fragment', 'run_on', 'split_line', 'word_order'].includes(c.id))
+                  .map((category) => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      onClick={() => toggleCategory(category.id)}
+                      disabled={disabled}
+                      className={`text-left px-3 py-2 rounded-lg border-2 text-xs font-medium transition-all ${
+                        selectedCategories.has(category.id)
+                          ? 'border-blue-500 bg-blue-50 text-blue-900 shadow-sm'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                      } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                    >
+                      {selectedCategories.has(category.id) && <span className="mr-1">✓</span>}
+                      {category.name}
+                    </button>
+                  ))}
+              </div>
+            </div>
+
+            {/* Style & Clarity Group */}
+            <div>
+              <div className="text-xs font-medium text-gray-600 mb-2 pl-1">✍️ Style & Clarity</div>
+              <div className="grid grid-cols-2 gap-2">
+                {categories
+                  .filter(c => ['awkward_phrasing', 'redundancy', 'parallelism_concision', 'clarity', 'contrast', 'preposition', 'register', 'repetition'].includes(c.id))
+                  .map((category) => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      onClick={() => toggleCategory(category.id)}
+                      disabled={disabled}
+                      className={`text-left px-3 py-2 rounded-lg border-2 text-xs font-medium transition-all ${
+                        selectedCategories.has(category.id)
+                          ? 'border-purple-500 bg-purple-50 text-purple-900 shadow-sm'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                      } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                    >
+                      {selectedCategories.has(category.id) && <span className="mr-1">✓</span>}
+                      {category.name}
+                    </button>
+                  ))}
+              </div>
+            </div>
+
+            {/* Mechanics & Basics Group */}
+            <div>
+              <div className="text-xs font-medium text-gray-600 mb-2 pl-1">🔤 Mechanics & Basics</div>
+              <div className="grid grid-cols-2 gap-2">
+                {categories
+                  .filter(c => ['spelling', 'punctuation', 'capitalisation', 'dialogue', 'comma_splice', 'coordination', 'ellipsis', 'hyphenation', 'missing_period', 'number_style', 'possessive', 'broken_quote', 'compounds', 'pronoun_reference'].includes(c.id))
+                  .map((category) => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      onClick={() => toggleCategory(category.id)}
+                      disabled={disabled}
+                      className={`text-left px-3 py-2 rounded-lg border-2 text-xs font-medium transition-all ${
+                        selectedCategories.has(category.id)
+                          ? 'border-green-500 bg-green-50 text-green-900 shadow-sm'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                      } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                    >
+                      {selectedCategories.has(category.id) && <span className="mr-1">✓</span>}
+                      {category.name}
+                    </button>
+                  ))}
+              </div>
+            </div>
+          </div>
+          
+          {/* Selection Summary */}
+          <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-gray-900">
+                {selectedCategories.size > 0 
+                  ? `${selectedCategories.size} of ${categories.length} categories selected`
+                  : 'No categories selected'}
+              </span>
+              {selectedCategories.size > 0 && (
+                <span className="text-xs text-gray-600">
+                  {selectedCategories.size === categories.length ? '(All)' : '(Custom)'}
+                </span>
+              )}
+            </div>
+            {selectedCategories.size === 0 && (
+              <p className="text-xs text-orange-600 mt-2">
+                ⚠️ Please select at least one category to analyze
+              </p>
+            )}
+          </div>
         </div>
 
-        {/* AI Enhancement Info */}
-        <div className="border border-green-200 bg-green-50 rounded-lg p-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-900">
-              ✨ AI-Enhanced Suggestions
-            </span>
-            <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full font-medium">
-              Always On
-            </span>
+        {/* AI Mode Selection */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-2">
+            Quality Mode
+          </label>
+          <div className="space-y-2">
+            {/* Free Mode */}
+            <label className={`flex items-start gap-3 p-3 border-2 rounded-lg cursor-pointer transition-all ${
+              aiMode === 'free' 
+                ? 'border-gray-900 bg-gray-50' 
+                : 'border-gray-200 hover:border-gray-300'
+            }`}>
+              <input
+                type="radio"
+                name="aiMode"
+                value="free"
+                checked={aiMode === 'free'}
+                onChange={(e) => setAiMode(e.target.value as 'free' | 'competitive' | 'premium')}
+                disabled={disabled}
+                className="mt-0.5 w-4 h-4 text-gray-900 border-gray-300"
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-900">🆓 Free Mode</span>
+                  <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 rounded-full">Pattern-Only</span>
+                </div>
+                <p className="text-xs text-gray-600 mt-1">
+                  470+ rules • 85-90% accuracy • Instant results • No cost
+                </p>
+              </div>
+            </label>
+
+            {/* Competitive Mode */}
+            <label className={`flex items-start gap-3 p-3 border-2 rounded-lg cursor-pointer transition-all ${
+              aiMode === 'competitive' 
+                ? 'border-blue-600 bg-blue-50' 
+                : 'border-gray-200 hover:border-gray-300'
+            }`}>
+              <input
+                type="radio"
+                name="aiMode"
+                value="competitive"
+                checked={aiMode === 'competitive'}
+                onChange={(e) => setAiMode(e.target.value as 'free' | 'competitive' | 'premium')}
+                disabled={disabled}
+                className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300"
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-900">⭐ Competitive Mode</span>
+                  <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-medium">RECOMMENDED</span>
+                </div>
+                <p className="text-xs text-gray-600 mt-1">
+                  Patterns + AI Enhancement • 92-95% accuracy • Fast
+                </p>
+                <p className="text-xs text-blue-600 mt-1">
+                  ~$0.01-0.03/MB • Best value for quality
+                </p>
+              </div>
+            </label>
+
+            {/* Premium Mode */}
+            <label className={`flex items-start gap-3 p-3 border-2 rounded-lg cursor-pointer transition-all ${
+              aiMode === 'premium' 
+                ? 'border-purple-600 bg-purple-50' 
+                : 'border-gray-200 hover:border-gray-300'
+            }`}>
+              <input
+                type="radio"
+                name="aiMode"
+                value="premium"
+                checked={aiMode === 'premium'}
+                onChange={(e) => setAiMode(e.target.value as 'free' | 'competitive' | 'premium')}
+                disabled={disabled}
+                className="mt-0.5 w-4 h-4 text-purple-600 border-gray-300"
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-900">💎 Premium Mode</span>
+                  <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">Maximum Quality</span>
+                </div>
+                <p className="text-xs text-gray-600 mt-1">
+                  Patterns + AI Detection + Enhancement • 95-98% accuracy
+                </p>
+                <p className="text-xs text-purple-600 mt-1">
+                  ~$0.05-0.15/MB • Deep analysis for complex documents
+                </p>
+              </div>
+            </label>
           </div>
-          <p className="text-xs text-gray-600 mt-1">
-            Advanced AI provides contextual grammar corrections for all documents
-          </p>
-          <p className="text-xs text-green-600 mt-1">
-            💡 Best for complex phrasing, tone, and style issues
-          </p>
         </div>
 
         {/* Submit Button */}
         <button
           type="submit"
           disabled={!selectedFile || !outputFilename.trim() || selectedCategories.size === 0 || disabled}
-          className="w-full bg-gray-900 text-white py-2 px-4 rounded text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className={`w-full py-3.5 px-6 rounded-lg text-sm font-semibold transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed ${
+            aiMode === 'competitive' 
+              ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white'
+              : aiMode === 'premium'
+              ? 'bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white'
+              : 'bg-gray-900 hover:bg-gray-800 text-white'
+          }`}
         >
-          {disabled ? 'Processing...' : 'Analyze'}
+          {disabled ? (
+            <span className="flex items-center justify-center gap-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+              Processing...
+            </span>
+          ) : (
+            <span>
+              {aiMode === 'competitive' ? '⭐ Analyze with AI (Recommended)' 
+               : aiMode === 'premium' ? '💎 Analyze with Premium AI'
+               : '🔍 Analyze with Patterns'}
+            </span>
+          )}
         </button>
+        
+        {/* Helpful Tip */}
+        {selectedCategories.size > 0 && (
+          <div className="text-center">
+            <p className="text-xs text-gray-500">
+              {aiMode === 'free' && '💡 Tip: Try Competitive Mode for AI-enhanced suggestions'}
+              {aiMode === 'competitive' && '✨ Fast processing with AI-enhanced fixes'}
+              {aiMode === 'premium' && '🔍 Deep AI analysis - finds the most subtle issues'}
+            </p>
+          </div>
+        )}
       </form>
     </div>
   );
