@@ -65,12 +65,29 @@ if !errorlevel! neq 0 (
     echo [SUCCESS] pnpm is available
 )
 
-REM Check Docker
+REM Check for Microsoft C++ Build Tools (required for spaCy)
+echo [INFO] Checking for Microsoft C++ Build Tools...
+where cl >nul 2>&1
+if !errorlevel! neq 0 (
+    echo [WARNING] Microsoft C++ Build Tools not detected.
+    echo [WARNING] This is required to install spaCy and its dependencies.
+    echo [WARNING] 
+    echo [WARNING] If installation fails, please install:
+    echo [WARNING] https://visualstudio.microsoft.com/visual-cpp-build-tools/
+    echo [WARNING] 
+    echo [WARNING] See docs/WINDOWS_SETUP_TROUBLESHOOTING.md for detailed help.
+    echo.
+    timeout /t 3 /nobreak >nul
+) else (
+    echo [SUCCESS] Microsoft C++ Build Tools detected
+)
+
+REM Check Docker (optional)
 where docker >nul 2>&1
 if !errorlevel! neq 0 (
     echo [WARNING] Docker is not installed. Docker is optional but recommended for LanguageTool.
 ) else (
-    echo [SUCCESS] Docker is available
+    echo [SUCCESS] Docker is available (optional)
 )
 
 echo.
@@ -140,8 +157,27 @@ REM Install dependencies
 echo [INFO] Installing Python dependencies (this may take a few minutes)...
 pip install -r requirements.txt
 if !errorlevel! neq 0 (
+    echo.
+    echo ========================================
     echo [ERROR] Failed to install Python dependencies
+    echo ========================================
+    echo.
+    echo Common causes:
+    echo   1. Microsoft C++ Build Tools not installed
+    echo   2. Python version compatibility issues
+    echo.
+    echo SOLUTIONS:
+    echo   1. Install Microsoft C++ Build Tools:
+    echo      https://visualstudio.microsoft.com/visual-cpp-build-tools/
+    echo.
+    echo   2. Or use Python 3.11 instead of 3.12+
+    echo.
+    echo   3. See detailed troubleshooting:
+    echo      docs\WINDOWS_SETUP_TROUBLESHOOTING.md
+    echo.
+    echo ========================================
     cd ..
+    pause
     exit /b 1
 )
 

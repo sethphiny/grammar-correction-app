@@ -43,10 +43,30 @@ scripts\windows\build-windows.bat
 
 ## Requirements
 
+**Essential:**
 - Windows 10 (21H1 or later) or Windows 11
-- Python 3.9+
+- Python 3.9+ (3.11 recommended for best compatibility)
 - Node.js 18+
 - npm or pnpm
+- **Microsoft C++ Build Tools** (required for spaCy)
+  - Download: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+  - Select "Desktop development with C++" workload
+  - ~7 GB disk space
+
+**Optional:**
+- Docker (for LanguageTool)
+
+### Important: Install Build Tools First!
+
+Before running `dev-setup.bat`, install Microsoft C++ Build Tools to avoid installation errors.
+
+**Quick Install:**
+1. Download: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+2. Run installer
+3. Select "Desktop development with C++"
+4. Install
+
+**Having issues?** See [docs/WINDOWS_SETUP_TROUBLESHOOTING.md](../../docs/WINDOWS_SETUP_TROUBLESHOOTING.md)
 
 ## Notes
 

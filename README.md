@@ -100,6 +100,11 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 **Windows:**
+
+> **⚠️ Important:** Install [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) first!  
+> Select "Desktop development with C++" workload. This is required for spaCy.  
+> See [docs/WINDOWS_SETUP_TROUBLESHOOTING.md](docs/WINDOWS_SETUP_TROUBLESHOOTING.md) if you encounter issues.
+
 ```cmd
 cd backend
 python -m venv venv
@@ -229,10 +234,16 @@ Line 4–5, Sentence 1
 
 ### 📚 Available Guides
 
+**Getting Started:**
 - **[Quick Start Guide](docs/QUICK_START_GUIDE.md)** - Get started in 5 minutes
+- **[Windows Setup Troubleshooting](docs/WINDOWS_SETUP_TROUBLESHOOTING.md)** - Fix common Windows installation issues ⭐
+
+**Configuration:**
 - **[API Keys Setup Guide](docs/API_KEYS_SETUP_GUIDE.md)** - How to get and configure OpenAI API keys
 - **[Environment Configuration](docs/ENV_CONFIGURATION.md)** - Configure environment variables and settings
 - **[Categories Checklist](docs/CATEGORIES_CHECKLIST.md)** - Complete list of grammar categories
+
+**Desktop Application:**
 - **[Windows Desktop README](docs/WINDOWS_DESKTOP_README.md)** - Desktop application user guide
 - **[Building Windows Executable](docs/BUILDING_WINDOWS_EXECUTABLE.md)** - Build your own desktop app
 - **[Testing Executable](docs/TESTING_EXECUTABLE.md)** - Test procedures for desktop builds
