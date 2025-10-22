@@ -184,3 +184,10 @@ spacy_models/
 
 # Sample documents
 *.docx
+
+# Electron build outputs
+electron/build/
+electron/dist/
+electron/resources/backend
+backend/dist/
+backend/build/
