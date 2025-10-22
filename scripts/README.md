@@ -2,15 +2,53 @@
 
 This directory contains various scripts to help with development, testing, and deployment of the Grammar Correction App.
 
+## Directory Structure
+
+```
+scripts/
+├── windows/              # Windows batch scripts (.bat)
+│   ├── dev-setup.bat
+│   ├── start-backend.bat
+│   ├── start-frontend.bat
+│   ├── start-dev.bat
+│   ├── test-all.bat
+│   ├── build-windows.bat
+│   ├── setup-build-env.bat
+│   └── check-build-status.bat
+│
+├── linux/                # Unix/Linux/Mac shell scripts (.sh)
+│   ├── dev-setup.sh
+│   ├── start-backend.sh
+│   ├── start-frontend.sh
+│   ├── start-dev.sh
+│   ├── test-all.sh
+│   ├── build-windows.sh
+│   ├── setup-build-env.sh
+│   ├── check-build-status.sh
+│   ├── rebuild-all.sh
+│   └── make-executable.sh
+│
+├── analyze_performance.py  # Platform-agnostic Python scripts
+├── build-backend.py
+├── view_latest_log.py
+└── README.md
+```
+
 ## Available Scripts
 
 ### Setup Scripts
 
-#### `dev-setup.sh`
+#### `dev-setup.sh` / `dev-setup.bat`
 Sets up the complete development environment.
 
+**Unix/Linux/Mac:**
 ```bash
-./scripts/dev-setup.sh
+./scripts/linux/dev-setup.sh
+```
+
+**Windows:**
+```cmd
+scripts\windows\dev-setup.bat
 ```
 
 **What it does:**
@@ -24,11 +62,17 @@ Sets up the complete development environment.
 
 ### Development Scripts
 
-#### `start-backend.sh`
+#### `start-backend.sh` / `start-backend.bat`
 Starts the FastAPI backend server in development mode.
 
+**Unix/Linux/Mac:**
 ```bash
-./scripts/start-backend.sh
+./scripts/linux/start-backend.sh
+```
+
+**Windows:**
+```cmd
+scripts\windows\start-backend.bat
 ```
 
 **What it does:**
@@ -38,39 +82,58 @@ Starts the FastAPI backend server in development mode.
 - Backend available at: http://localhost:8000
 - API docs at: http://localhost:8000/docs
 
-#### `start-frontend.sh`
+#### `start-frontend.sh` / `start-frontend.bat`
 Starts the React frontend development server.
 
+**Unix/Linux/Mac:**
 ```bash
-./scripts/start-frontend.sh
+./scripts/linux/start-frontend.sh
+```
+
+**Windows:**
+```cmd
+scripts\windows\start-frontend.bat
 ```
 
 **What it does:**
 - Checks backend connection
 - Starts React development server
+- Uses pnpm if available, otherwise npm
 - Frontend available at: http://localhost:3000
 
-#### `start-dev.sh`
+#### `start-dev.sh` / `start-dev.bat`
 Starts both backend and frontend servers concurrently.
 
+**Unix/Linux/Mac:**
 ```bash
-./scripts/start-dev.sh
+./scripts/linux/start-dev.sh
+```
+
+**Windows:**
+```cmd
+scripts\windows\start-dev.bat
 ```
 
 **What it does:**
 - Starts LanguageTool with Docker (if not running)
-- Starts backend server in background
-- Starts frontend server in background
+- Starts backend server (new window on Windows, background on Unix)
+- Starts frontend server (new window on Windows, background on Unix)
 - Provides logs and status information
 - Handles graceful shutdown with Ctrl+C
 
 ### Testing Scripts
 
-#### `test-all.sh`
+#### `test-all.sh` / `test-all.bat`
 Runs all tests and code quality checks.
 
+**Unix/Linux/Mac:**
 ```bash
-./scripts/test-all.sh
+./scripts/linux/test-all.sh
+```
+
+**Windows:**
+```cmd
+scripts\windows\test-all.bat
 ```
 
 **What it does:**
@@ -84,31 +147,64 @@ Runs all tests and code quality checks.
 
 ### Quick Start Development
 
+#### Unix/Linux/Mac
+
 1. **Initial Setup** (run once):
    ```bash
-   ./scripts/dev-setup.sh
+   ./scripts/linux/dev-setup.sh
    ```
 
 2. **Start Development Environment**:
    ```bash
-   ./scripts/start-dev.sh
+   ./scripts/linux/start-dev.sh
    ```
 
 3. **Run Tests**:
    ```bash
-   ./scripts/test-all.sh
+   ./scripts/linux/test-all.sh
+   ```
+
+#### Windows
+
+1. **Initial Setup** (run once):
+   ```cmd
+   scripts\windows\dev-setup.bat
+   ```
+
+2. **Start Development Environment**:
+   ```cmd
+   scripts\windows\start-dev.bat
+   ```
+
+3. **Run Tests**:
+   ```cmd
+   scripts\windows\test-all.bat
    ```
 
 ### Individual Services
 
+#### Unix/Linux/Mac
+
 **Backend only:**
 ```bash
-./scripts/start-backend.sh
+./scripts/linux/start-backend.sh
 ```
 
 **Frontend only:**
 ```bash
-./scripts/start-frontend.sh
+./scripts/linux/start-frontend.sh
+```
+
+#### Windows
+
+**Backend only:**
+```cmd
+scripts\windows\start-backend.bat
+```
+
+**Frontend only:**
+```cmd
+scripts\windows\start-frontend.bat
 ```
 
 ### Docker Development

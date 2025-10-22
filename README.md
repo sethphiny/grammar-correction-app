@@ -1,6 +1,23 @@
-# Grammar Correction Web App
+# Grammar Correction App
 
-A Dockerized web application that allows users to upload Word documents (.doc or .docx), checks them line by line and sentence by sentence using a hybrid approach combining spaCy and LanguageTool, and generates comprehensive correction reports.
+A comprehensive grammar checking application available as a **web app**, **desktop application**, or **Docker container**. Upload Word documents (.doc or .docx) and get detailed corrections using a hybrid approach combining spaCy, LanguageTool, and optional AI enhancement.
+
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+  - [Windows Desktop Application](#windows-desktop-application-easiest)
+  - [Using Docker](#using-docker-recommended-for-web-deployment)
+  - [Manual Setup](#manual-setup)
+- [Architecture](#architecture)
+- [API Endpoints](#api-endpoints)
+- [Documentation](#documentation)
+- [Configuration](#configuration)
+- [Development](#development)
+- [Utility Scripts](#utility-scripts)
+- [Deployment](#deployment)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Features
 
@@ -11,7 +28,7 @@ A Dockerized web application that allows users to upload Word documents (.doc or
   - ⭐ **Competitive Mode**: Patterns + AI Detection (95-98% detection) **RECOMMENDED**
   - 💎 **Premium Mode**: Full AI with GPT-4o (98-99% detection)
 
-- **13 Grammar Categories**: redundancy, spelling, grammar, punctuation, dialogue, capitalisation, tense consistency, awkward phrasing, parallelism, articles, agreement, ambiguous pronouns, dangling modifiers
+- **30+ Grammar Categories**: redundancy, spelling, grammar, punctuation, dialogue, capitalisation, tense consistency, awkward phrasing, parallelism, articles, agreement, ambiguous pronouns, dangling modifiers, fragments, run-ons, word order, clarity, prepositions, register, repetition, comma splices, coordination, ellipsis, hyphenation, and more
 
 - **🤖 AI-Powered Features**:
   - **AI Detection**: Catches subtle, context-dependent issues patterns miss
@@ -19,7 +36,9 @@ A Dockerized web application that allows users to upload Word documents (.doc or
   - **Hybrid Intelligence**: 470+ patterns + GPT-4 = best-in-class accuracy
 
 - **Advanced Capabilities**:
+  - **Multiple Deployment Options**: Web app, Windows desktop, or Docker
   - **Web-based UI**: React frontend with TailwindCSS
+  - **Desktop Application**: Portable Windows executable (no installation required)
   - **Real-Time Progress**: WebSocket-based live updates
   - **Selective Categories**: Choose what to check
   - **Multiple Formats**: DOCX or PDF reports
@@ -29,7 +48,27 @@ A Dockerized web application that allows users to upload Word documents (.doc or
 
 ## Quick Start
 
-### Using Docker (Recommended)
+### Windows Desktop Application (Easiest)
+
+**For end users who want a simple, standalone application:**
+
+1. **Download** the latest release:
+   - Get `Grammar Correction App-[version]-portable.exe` from the releases page
+
+2. **Run** the application:
+   - Double-click the executable (no installation needed)
+   - Wait 10-15 seconds for startup
+   - Application window opens automatically
+
+3. **Start checking**:
+   - Upload your Word document
+   - Select grammar categories (optional)
+   - Download corrected document
+
+**See:** `docs/WINDOWS_DESKTOP_README.md` for complete desktop app documentation  
+**Build Guide:** `docs/BUILDING_WINDOWS_EXECUTABLE.md` for creating your own executable
+
+### Using Docker (Recommended for Web Deployment)
 
 ```bash
 # Clone and navigate to the project
@@ -47,22 +86,35 @@ docker-compose up --build
 
 #### Backend Setup
 
+**Unix/Linux/Mac:**
 ```bash
 cd backend
 python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate
 python3 -m pip install -r requirements.txt
-
-# Download spaCy language model for passive voice detection
 python3 -m spacy download en_core_web_sm
 
 # Start the backend server
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# Or use the helper script: ./scripts/linux/start-backend.sh
+```
+
+**Windows:**
+```cmd
+cd backend
+python -m venv venv
+venv\Scripts\activate
+python -m pip install -r requirements.txt
+python -m spacy download en_core_web_sm
+
+REM Start the backend server
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+REM Or use the helper script: scripts\windows\start-backend.bat
 ```
 
 **Note**: The spaCy model `en_core_web_sm` is required for smart passive voice detection. If not installed, the feature will be automatically disabled with a warning message.
 
-#### ⭐ **RECOMMENDED: Enable Full AI Mode (Premium Quality)**
+#### ⭐ **RECOMMENDED: Enable AI Enhancement (Premium Quality)**
 
 For **95-98% detection accuracy** competitive with Grammarly Premium:
 
@@ -76,31 +128,38 @@ echo "OPENAI_API_KEY=sk-proj-your-key-here" >> .env
 echo "OPENAI_MODEL=gpt-4o-mini" >> .env  # Cost-effective (recommended)
 # echo "OPENAI_MODEL=gpt-4o" >> .env     # Maximum quality (premium)
 
-# Test connection
-python3 test_llm_connection.py
-
 # Restart backend
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 **Get API Key**: https://platform.openai.com/api-keys  
-**Quick Guide**: `docs/QUICK_START_LLM.md`  
-**Competitive Guide**: `docs/COMPETITIVE_MODE.md` ⭐  
-**Setup Guide**: `docs/RECOMMENDED_SETUP.md` ⭐
+**Configuration Guide**: `docs/ENV_CONFIGURATION.md`
 
-**Why Full AI Mode?**
+**Why AI Enhancement?**
 - ✅ 95-98% detection (matches Grammarly Premium)
 - ✅ Catches subtle issues patterns miss
 - ✅ Professional-quality fixes
-- ✅ Cost: ~$0.06-0.18/MB (vs $144/year subscription)
+- ✅ Cost-effective: ~$0.01-0.03/MB (vs $144/year subscription)
 
 #### Frontend Setup
 
+**Unix/Linux/Mac:**
 ```bash
 cd frontend
-pnpm install
-pnpm run dev
+pnpm install              # or: npm install
+pnpm run dev              # or: npm run dev
+# Or use the helper script: ./scripts/linux/start-frontend.sh
 ```
+
+**Windows:**
+```cmd
+cd frontend
+npm install               REM or: pnpm install
+npm start                 REM or: pnpm start
+REM Or use the helper script: scripts\windows\start-frontend.bat
+```
+
+**Note:** The project supports both `pnpm` (recommended for faster installs) and `npm`. The Windows batch script automatically detects which package manager is available.
 
 ## Architecture
 
@@ -168,12 +227,15 @@ Line 4–5, Sentence 1
 
 ## Documentation
 
-### 📚 Guides
+### 📚 Available Guides
 
-- **[Quick Start: LLM Enhancement](docs/QUICK_START_LLM.md)** - 15-minute setup for AI-powered corrections
-- **[API Keys Setup Guide](docs/API_KEYS_SETUP_GUIDE.md)** - How to get and configure API keys
-- **[LLM Implementation Guide](docs/LLM_IMPLEMENTATION_GUIDE.md)** - Complete implementation plans and architecture
-- **[LLM Cost Reference](docs/LLM_COST_REFERENCE.md)** - Cost calculator and budget planning
+- **[Quick Start Guide](docs/QUICK_START_GUIDE.md)** - Get started in 5 minutes
+- **[API Keys Setup Guide](docs/API_KEYS_SETUP_GUIDE.md)** - How to get and configure OpenAI API keys
+- **[Environment Configuration](docs/ENV_CONFIGURATION.md)** - Configure environment variables and settings
+- **[Categories Checklist](docs/CATEGORIES_CHECKLIST.md)** - Complete list of grammar categories
+- **[Windows Desktop README](docs/WINDOWS_DESKTOP_README.md)** - Desktop application user guide
+- **[Building Windows Executable](docs/BUILDING_WINDOWS_EXECUTABLE.md)** - Build your own desktop app
+- **[Testing Executable](docs/TESTING_EXECUTABLE.md)** - Test procedures for desktop builds
 
 ### 💰 Cost Information
 
@@ -182,7 +244,7 @@ Line 4–5, Sentence 1
 | Pattern-Based Checking | Free | Always (default) |
 | AI-Enhanced Suggestions | $0.01-0.03/MB | Complex documents, premium quality |
 
-**See:** `docs/LLM_COST_REFERENCE.md` for detailed cost breakdown
+**Note:** AI enhancement is optional and only processes 20-30% of issues (low-confidence cases)
 
 ## Configuration
 
@@ -218,7 +280,7 @@ The system supports customizable grammar rules:
 cd backend && python -m pytest
 
 # Frontend tests
-cd frontend && pnpm test
+cd frontend && pnpm test      # or: npm test
 
 # All tests
 ./scripts/test-all.sh
@@ -231,10 +293,82 @@ cd frontend && pnpm test
 cd backend && flake8 . && black . && isort .
 
 # Frontend linting
-cd frontend && pnpm run lint
+cd frontend && pnpm run lint  # or: npm run lint
+```
+
+## Utility Scripts
+
+The `scripts/` directory contains helpful utilities for development and deployment, organized by platform:
+
+```
+scripts/
+├── windows/          # Windows batch scripts (.bat)
+├── linux/            # Unix/Linux/Mac shell scripts (.sh)
+├── *.py             # Platform-agnostic Python scripts
+└── README.md
+```
+
+### Development Scripts
+
+**Unix/Linux/Mac:** Use scripts in `scripts/linux/`
+**Windows:** Use scripts in `scripts/windows/`
+
+- **`dev-setup`** - Complete development environment setup
+- **`start-backend`** - Start FastAPI backend server
+- **`start-frontend`** - Start React frontend development server
+- **`start-dev`** - Start both backend and frontend concurrently
+- **`test-all`** - Run all tests and linting
+- **`setup-build-env`** - Setup build environment
+- **`check-build-status`** - Check status of build artifacts
+
+### Build Scripts
+
+- **`build-backend.py`** - Build standalone Python executable with PyInstaller (Python)
+- **`build-windows`** - Complete Windows desktop app build (`.bat` for Windows, `.sh` for Mac/Linux)
+- **`rebuild-all.sh`** - Rebuild all components (Unix/Linux/Mac)
+
+### Analysis Scripts
+
+- **`analyze_performance.py`** - Analyze performance logs and metrics (Python)
+- **`view_latest_log.py`** - View latest performance log (Python)
+
+**See:** `scripts/README.md` for detailed documentation on all scripts
+
+### Quick Examples
+
+**Unix/Linux/Mac:**
+```bash
+./scripts/linux/dev-setup.sh      # Initial setup
+./scripts/linux/start-dev.sh      # Start development servers
+```
+
+**Windows:**
+```cmd
+scripts\windows\dev-setup.bat     REM Initial setup
+scripts\windows\start-dev.bat     REM Start development servers
 ```
 
 ## Deployment
+
+### Windows Desktop Application
+
+Build a standalone Windows executable:
+
+```bash
+# Quick build (all-in-one)
+./scripts/linux/build-windows.sh    # Mac/Linux
+scripts\windows\build-windows.bat   # Windows
+
+# The result will be in: electron/dist/
+# File: Grammar Correction App-[version]-portable.exe
+```
+
+**Requirements:**
+- Python 3.8+ (for backend build)
+- Node.js 18+ (for Electron build)
+- PyInstaller: `pip install pyinstaller`
+
+**See:** `docs/BUILDING_WINDOWS_EXECUTABLE.md` for detailed build instructions
 
 ### Production Docker
 
@@ -248,6 +382,7 @@ docker-compose -f docker-compose.prod.yml up --build
 2. Configure your LanguageTool server (optional)
 3. Set appropriate file size limits
 4. Configure CORS settings
+5. Set OpenAI API key for AI enhancement (optional)
 
 ## Contributing
 
