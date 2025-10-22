@@ -3,6 +3,7 @@ Main FastAPI application for Grammar Correction Web App
 """
 
 import os
+import sys
 import uuid
 import asyncio
 import json
@@ -14,8 +15,33 @@ from fastapi.staticfiles import StaticFiles
 import uvicorn
 from dotenv import load_dotenv
 
-# Load environment variables from parent directory
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+# Load environment variables - check multiple locations
+# For PyInstaller bundled executable
+if getattr(sys, 'frozen', False):
+    # Running as compiled executable
+    app_dir = os.path.dirname(sys.executable)
+    # Try next to the executable first
+    env_paths = [
+        os.path.join(app_dir, '.env'),
+        os.path.join(sys._MEIPASS, '.env'),  # Inside the bundle
+    ]
+else:
+    # Running as script
+    env_paths = [
+        os.path.join(os.path.dirname(__file__), '..', '.env'),
+    ]
+
+# Load first available .env file
+env_loaded = False
+for env_path in env_paths:
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+        print(f"[Config] Loaded environment from: {env_path}")
+        env_loaded = True
+        break
+
+if not env_loaded:
+    print("[Config] No .env file found - using system environment variables")
 
 from services.document_parser import DocumentParser
 from services.grammar_checker import GrammarChecker

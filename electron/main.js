@@ -81,13 +81,43 @@ async function startBackend() {
         });
       } else {
         // In production, run the bundled executable
-        backendPath = getResourcePath('backend.exe');
-        console.log('Starting backend executable:', backendPath);
+        // Try both .exe (Windows) and no extension (Unix)
+        let possiblePaths = [
+          getResourcePath('backend.exe'),
+          getResourcePath('backend')
+        ];
         
-        if (!fs.existsSync(backendPath)) {
-          reject(new Error(`Backend executable not found at: ${backendPath}`));
+        backendPath = null;
+        for (let p of possiblePaths) {
+          console.log('Checking for backend at:', p);
+          if (fs.existsSync(p)) {
+            backendPath = p;
+            console.log('✓ Found backend at:', backendPath);
+            break;
+          }
+        }
+        
+        if (!backendPath) {
+          // Show detailed error with all checked paths and resource directory contents
+          const resourceDir = path.join(process.resourcesPath);
+          let errorMsg = `Backend executable not found!\n\n`;
+          errorMsg += `Checked paths:\n`;
+          possiblePaths.forEach(p => errorMsg += `  - ${p}\n`);
+          errorMsg += `\nResource directory: ${resourceDir}\n`;
+          errorMsg += `Contents:\n`;
+          try {
+            const files = fs.readdirSync(resourceDir);
+            files.forEach(f => errorMsg += `  - ${f}\n`);
+          } catch (e) {
+            errorMsg += `  (Could not read directory: ${e.message})\n`;
+          }
+          console.error(errorMsg);
+          reject(new Error(errorMsg));
           return;
         }
+        
+        console.log('Starting backend executable:', backendPath);
+      }
         
         backendProcess = spawn(backendPath, [], {
           env: {

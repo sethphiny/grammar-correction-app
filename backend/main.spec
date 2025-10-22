@@ -18,6 +18,14 @@ category_modules = collect_submodules('services.categories')
 # Collect data files for various packages
 datas = []
 
+# Include .env file if it exists (for configuration)
+env_file = os.path.join(os.path.dirname(os.path.abspath('main.py')), '..', '.env')
+if os.path.exists(env_file):
+    datas.append((env_file, '.'))
+    print(f"✓ Including .env file: {env_file}")
+else:
+    print("⚠️  No .env file found - environment variables must be set externally")
+
 # Language Tool Python data files
 datas += collect_data_files('language_tool_python')
 

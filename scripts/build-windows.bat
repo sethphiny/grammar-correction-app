@@ -62,11 +62,16 @@ echo.
 echo Step 5: Installing Electron Dependencies
 echo ------------------------------------------------------------------------
 cd electron
+REM Clean install to avoid dependency issues
+if exist "node_modules" rmdir /s /q "node_modules"
+if exist "package-lock.json" del /f "package-lock.json"
 call npm install
 if %ERRORLEVEL% neq 0 (
     echo ERROR: Failed to install Electron dependencies
     exit /b 1
 )
+REM Install missing peer dependencies explicitly
+call npm install brace-expansion
 cd ..
 echo OK: Electron dependencies installed
 echo.

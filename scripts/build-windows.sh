@@ -45,7 +45,11 @@ echo ""
 echo "Step 5: Installing Electron Dependencies"
 echo "------------------------------------------------------------------------"
 cd electron
+# Clean install to avoid dependency issues
+rm -rf node_modules package-lock.json
 npm install
+# Install missing peer dependencies explicitly
+npm install brace-expansion
 cd ..
 echo "✓ Electron dependencies installed"
 echo ""
