@@ -45,7 +45,12 @@ fi
 
 # Activate virtual environment
 print_status "Activating virtual environment..."
-source backend/venv/bin/activate
+# Detect if running on Git Bash on Windows
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+    source backend/venv/Scripts/activate
+else
+    source backend/venv/bin/activate
+fi
 
 # Check if LanguageTool is running (optional)
 print_status "Checking LanguageTool connection..."

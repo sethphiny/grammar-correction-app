@@ -2,6 +2,8 @@
 
 This directory contains Windows batch scripts (.bat) for the Grammar Correction App.
 
+> **💡 Tip:** If you have Git Bash installed, consider using the `scripts/linux/*.sh` scripts instead for better compatibility! See [../GITBASH_WINDOWS.md](../GITBASH_WINDOWS.md) for details.
+
 ## Available Scripts
 
 ### Development

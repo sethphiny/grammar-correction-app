@@ -2,6 +2,8 @@
 
 This directory contains shell scripts (.sh) for Unix-like systems (Linux, macOS, BSD, etc.).
 
+> **✨ Also works with Git Bash on Windows!** These scripts automatically detect Git Bash and work seamlessly on Windows. See [../GITBASH_WINDOWS.md](../GITBASH_WINDOWS.md) for setup guide.
+
 ## Available Scripts
 
 ### Development
@@ -31,16 +33,22 @@ This directory contains shell scripts (.sh) for Unix-like systems (Linux, macOS,
 # 1. Make scripts executable (first time only)
 chmod +x scripts/linux/*.sh
 
-# 2. Initial setup
+# 2. Initial setup (installs dependencies only)
 ./scripts/linux/dev-setup.sh
 
 # 3. Start development servers
-./scripts/linux/start-dev.sh
+./scripts/linux/start-dev.sh        # Start both backend & frontend
+# OR start them individually:
+./scripts/linux/start-backend.sh    # Terminal 1
+./scripts/linux/start-frontend.sh   # Terminal 2
 
-# 4. Run tests
+# 4. (Optional) Start LanguageTool
+docker run -d -p 8081:8081 silviof/docker-languagetool:latest
+
+# 5. Run tests
 ./scripts/linux/test-all.sh
 
-# 5. Build desktop app
+# 6. Build desktop app
 ./scripts/linux/build-windows.sh
 ```
 
@@ -56,7 +64,10 @@ chmod +x scripts/linux/*.sh
 
 - All scripts should be run from the project root directory
 - Scripts need execute permissions: `chmod +x scripts/linux/*.sh`
+- `dev-setup.sh` only installs dependencies - it does NOT start servers
+- Use `start-backend.sh` and `start-frontend.sh` to run the servers
 - Virtual environment will be created automatically by dev-setup.sh
+- Docker is optional - only needed for LanguageTool (grammar checking works without it)
 - Most scripts check for requirements and provide helpful error messages
 
 ## Documentation

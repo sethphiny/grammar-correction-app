@@ -61,14 +61,11 @@ check_requirements() {
         print_success "pnpm is available"
     fi
     
-    # Check Docker
+    # Check Docker (optional)
     if ! command -v docker &> /dev/null; then
-        print_warning "Docker is not installed. Docker is required for running the full application."
-    fi
-    
-    # Check Docker Compose
-    if ! command -v docker-compose &> /dev/null; then
-        print_warning "Docker Compose is not installed. Docker Compose is required for running the full application."
+        print_warning "Docker is not installed. Docker is optional but recommended for LanguageTool."
+    else
+        print_success "Docker is available (optional)"
     fi
     
     print_success "System requirements check completed"
@@ -87,7 +84,12 @@ setup_backend() {
     fi
     
     # Activate virtual environment
-    source venv/bin/activate
+    # Detect if running on Git Bash on Windows
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+        source venv/Scripts/activate
+    else
+        source venv/bin/activate
+    fi
     
     # Upgrade pip
     pip install --upgrade pip
@@ -165,20 +167,6 @@ EOF
     fi
 }
 
-# Setup LanguageTool (optional)
-setup_languagetool() {
-    print_status "Setting up LanguageTool..."
-    
-    # Check if LanguageTool is already running
-    if curl -s http://localhost:8081/v2/languages > /dev/null 2>&1; then
-        print_success "LanguageTool is already running on localhost:8081"
-        return
-    fi
-    
-    print_warning "LanguageTool is not running. You can start it with:"
-    print_warning "  docker run -d -p 8081:8081 silviof/docker-languagetool:latest"
-    print_warning "  or use the docker-compose setup"
-}
 
 # Verify setup
 verify_setup() {
@@ -186,8 +174,14 @@ verify_setup() {
     
     # Verify backend
     cd backend
-    if [ -f "venv/bin/activate" ]; then
-        source venv/bin/activate
+    # Check for venv in both possible locations (Unix/Git Bash on Windows)
+    if [ -f "venv/bin/activate" ] || [ -f "venv/Scripts/activate" ]; then
+        # Activate based on OS
+        if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+            source venv/Scripts/activate
+        else
+            source venv/bin/activate
+        fi
         if python -c "from services.grammar_checker import GrammarChecker; print('✓ Grammar checker imports successfully')" 2>/dev/null; then
             print_success "Backend grammar checker verified"
         else
@@ -228,9 +222,6 @@ main() {
     setup_frontend
     echo
     
-    setup_languagetool
-    echo
-    
     # Verify setup
     verify_setup
     echo
@@ -238,10 +229,17 @@ main() {
     print_success "🎉 Development environment setup completed!"
     echo
     print_status "Next steps:"
-    echo "1. Start LanguageTool (optional): docker run -d -p 8081:8081 silviof/docker-languagetool:latest"
-    echo "2. Start backend: ./scripts/start-backend.sh"
-    echo "3. Start frontend: ./scripts/start-frontend.sh"
-    echo "4. Or start everything with Docker: docker-compose up --build"
+    echo "1. Start backend server:"
+    echo "   ./scripts/linux/start-backend.sh"
+    echo
+    echo "2. Start frontend server (in a new terminal):"
+    echo "   ./scripts/linux/start-frontend.sh"
+    echo
+    echo "3. Or start both at once:"
+    echo "   ./scripts/linux/start-dev.sh"
+    echo
+    echo "4. (Optional) Start LanguageTool with Docker:"
+    echo "   docker run -d -p 8081:8081 silviof/docker-languagetool:latest"
     echo
     print_status "The application will be available at:"
     echo "- Frontend: http://localhost:3000"

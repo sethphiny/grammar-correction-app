@@ -50,7 +50,12 @@ test_backend() {
     fi
     
     # Activate virtual environment
-    source venv/bin/activate
+    # Detect if running on Git Bash on Windows
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+        source venv/Scripts/activate
+    else
+        source venv/bin/activate
+    fi
     
     # Install test dependencies if not already installed
     pip install pytest pytest-asyncio pytest-cov > /dev/null 2>&1 || true
@@ -117,7 +122,12 @@ test_linting() {
     cd backend
     
     if [ -d "venv" ]; then
-        source venv/bin/activate
+        # Detect if running on Git Bash on Windows
+        if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+            source venv/Scripts/activate
+        else
+            source venv/bin/activate
+        fi
         
         # Install linting tools if not already installed
         pip install flake8 black isort > /dev/null 2>&1 || true

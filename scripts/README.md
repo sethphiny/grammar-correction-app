@@ -14,10 +14,11 @@ scripts/
 │   ├── test-all.bat
 │   ├── build-windows.bat
 │   ├── setup-build-env.bat
-│   └── check-build-status.bat
+│   ├── check-build-status.bat
+│   └── README.md
 │
 ├── linux/                # Unix/Linux/Mac shell scripts (.sh)
-│   ├── dev-setup.sh
+│   ├── dev-setup.sh     # Also works with Git Bash on Windows!
 │   ├── start-backend.sh
 │   ├── start-frontend.sh
 │   ├── start-dev.sh
@@ -26,13 +27,26 @@ scripts/
 │   ├── setup-build-env.sh
 │   ├── check-build-status.sh
 │   ├── rebuild-all.sh
-│   └── make-executable.sh
+│   ├── make-executable.sh
+│   └── README.md
 │
 ├── analyze_performance.py  # Platform-agnostic Python scripts
 ├── build-backend.py
 ├── view_latest_log.py
+├── GITBASH_WINDOWS.md   # Guide for using Git Bash on Windows
 └── README.md
 ```
+
+## Platform Support
+
+| Platform | Scripts to Use | Notes |
+|----------|---------------|-------|
+| **Linux** | `linux/*.sh` | Native shell scripts |
+| **macOS** | `linux/*.sh` | Native shell scripts |
+| **Windows (CMD/PowerShell)** | `windows/*.bat` | Native batch scripts |
+| **Windows (Git Bash)** | `linux/*.sh` | ✨ Recommended for Windows developers! |
+
+> **💡 Windows Users:** If you have Git Bash installed, we recommend using the `linux/*.sh` scripts for better compatibility and features. See [GITBASH_WINDOWS.md](GITBASH_WINDOWS.md) for details.
 
 ## Available Scripts
 
@@ -52,13 +66,15 @@ scripts\windows\dev-setup.bat
 ```
 
 **What it does:**
-- Checks system requirements (Python 3.9+, Node.js 18+, pnpm, Docker)
+- Checks system requirements (Python 3.9+, Node.js 18+, npm/pnpm)
 - Creates Python virtual environment
 - Installs backend dependencies
 - Downloads spaCy English model
 - Installs frontend dependencies
 - Creates environment configuration files
-- Sets up LanguageTool (optional)
+- Verifies setup
+
+**Note:** This script only sets up the development environment. Use `start-backend.sh` and `start-frontend.sh` to run the servers.
 
 ### Development Scripts
 
@@ -151,17 +167,31 @@ scripts\windows\test-all.bat
 
 1. **Initial Setup** (run once):
    ```bash
+   # Make scripts executable
+   chmod +x scripts/linux/*.sh
+   
+   # Install all dependencies
    ./scripts/linux/dev-setup.sh
    ```
 
-2. **Start Development Environment**:
+2. **Start Development Servers**:
    ```bash
+   # Option A: Start both servers at once
    ./scripts/linux/start-dev.sh
+   
+   # Option B: Start servers individually (in separate terminals)
+   ./scripts/linux/start-backend.sh    # Terminal 1
+   ./scripts/linux/start-frontend.sh   # Terminal 2
    ```
 
 3. **Run Tests**:
    ```bash
    ./scripts/linux/test-all.sh
+   ```
+
+4. **(Optional) Start LanguageTool**:
+   ```bash
+   docker run -d -p 8081:8081 silviof/docker-languagetool:latest
    ```
 
 #### Windows

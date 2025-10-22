@@ -70,7 +70,12 @@ fi
 # Start backend in background
 print_status "Starting backend server..."
 cd backend
-source venv/bin/activate
+# Detect if running on Git Bash on Windows
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+    source venv/Scripts/activate
+else
+    source venv/bin/activate
+fi
 export PYTHONPATH=$(pwd)
 export PYTHONUNBUFFERED=1
 uvicorn main:app --reload --host 0.0.0.0 --port 8000 > ../backend.log 2>&1 &

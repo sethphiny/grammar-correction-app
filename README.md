@@ -305,13 +305,24 @@ scripts/
 ├── windows/          # Windows batch scripts (.bat)
 ├── linux/            # Unix/Linux/Mac shell scripts (.sh)
 ├── *.py             # Platform-agnostic Python scripts
+├── GITBASH_WINDOWS.md  # Guide for Git Bash on Windows
 └── README.md
 ```
 
+### Platform Support
+
+| Platform | Scripts to Use |
+|----------|---------------|
+| Linux / macOS | `scripts/linux/*.sh` |
+| Windows (CMD/PowerShell) | `scripts/windows/*.bat` |
+| Windows (Git Bash) | `scripts/linux/*.sh` ⭐ **Recommended** |
+
+> **💡 Windows Developers:** If you have [Git Bash](https://git-scm.com/download/win) installed, use the `linux/` scripts for better compatibility! See `scripts/GITBASH_WINDOWS.md` for setup.
+
 ### Development Scripts
 
-**Unix/Linux/Mac:** Use scripts in `scripts/linux/`
-**Windows:** Use scripts in `scripts/windows/`
+**Unix/Linux/Mac/Git Bash:** Use scripts in `scripts/linux/`  
+**Windows (CMD/PowerShell):** Use scripts in `scripts/windows/`
 
 - **`dev-setup`** - Complete development environment setup
 - **`start-backend`** - Start FastAPI backend server
@@ -342,10 +353,20 @@ scripts/
 ./scripts/linux/start-dev.sh      # Start development servers
 ```
 
-**Windows:**
+**Windows (CMD/PowerShell):**
 ```cmd
 scripts\windows\dev-setup.bat     REM Initial setup
 scripts\windows\start-dev.bat     REM Start development servers
+```
+
+**Windows (Git Bash):** ⭐ **Recommended**
+```bash
+# First time: make scripts executable
+chmod +x scripts/linux/*.sh
+
+# Then use the same commands as Linux/Mac
+./scripts/linux/dev-setup.sh      # Initial setup
+./scripts/linux/start-dev.sh      # Start development servers
 ```
 
 ## Deployment
