@@ -197,10 +197,12 @@ class LLMGrammarChecker:
 2. Preserve the writer's voice - don't impose formal style on casual writing
 3. Context matters - use surrounding text to understand intent
 4. Be conservative - when in doubt, don't flag it
-5. For each issue, provide:
-   - The EXACT problematic text from the paragraph
+5. DO NOT make up or hallucinate issues - only report what you actually see
+6. For each issue, provide:
+   - The EXACT problematic text from the paragraph (must be word-for-word quote)
+   - The "original_text" field MUST contain text that actually appears in the paragraph above
    - Clear explanation WITHOUT using quotation marks or apostrophes
-   - The corrected version (minimal changes only)
+   - The corrected version (should be similar length to original, only fixing the specific issue)
    - Category MUST be one from the list above
    - Confidence level (0.0-1.0)
 
@@ -216,17 +218,20 @@ Return ONLY valid JSON (no markdown blocks, no extra text):
 {{
     "issues": [
         {{
-            "original_text": "the exact problematic sentence",
-            "problem": "Brief explanation without quotation marks",
-            "fix": "Descriptive fix without quotation marks",
-            "corrected_text": "The corrected sentence",
+            "original_text": "Copy the EXACT text from the paragraph that has the error",
+            "problem": "Brief explanation without quotation marks describing what is wrong",
+            "fix": "Brief suggestion without quotation marks on how to fix it",
+            "corrected_text": "The same sentence with ONLY the error fixed, keeping everything else identical",
             "category": "MUST be one of: {', '.join(categories_to_check)}",
             "confidence": 0.95
         }}
     ]
 }}
 
-If no issues: {{"issues": []}}
+IMPORTANT:
+- "original_text" must be copied EXACTLY from the paragraph above
+- "corrected_text" should be nearly identical to "original_text" with only the specific error fixed
+- If you cannot find a genuine error, return: {{"issues": []}}
 
 REMEMBER: NO quotation marks in problem/fix fields, and British/American spellings are BOTH valid!"""
             
@@ -282,15 +287,34 @@ REMEMBER: NO quotation marks in problem/fix fields, and British/American spellin
                     except json.JSONDecodeError:
                         pass
                 
-                # Strategy 2: Try to extract and fix the JSON manually
+                # Strategy 2: Try to fix unescaped quotes in problem/fix fields
                 if not repaired:
                     try:
-                        # Find the issues array and try to parse it with lenient mode
-                        # This is a last resort - just return empty to skip problematic paragraphs
-                        print(f"❌ [LLMGrammarChecker] Could not fix JSON, skipping paragraph")
-                        return []
-                    except Exception:
-                        return []
+                        import re
+                        # Replace unescaped quotes in "problem" and "fix" fields
+                        # Pattern: "problem": "text with "quotes" in it"
+                        def fix_quotes(match):
+                            field = match.group(1)
+                            content = match.group(2)
+                            # Remove or replace internal quotes
+                            fixed_content = content.replace('"', '')
+                            return f'"{field}": "{fixed_content}"'
+                        
+                        fixed_text = re.sub(
+                            r'"(problem|fix)"\s*:\s*"([^"]*?"[^"]*?)"',
+                            fix_quotes,
+                            response_text
+                        )
+                        result = json.loads(fixed_text)
+                        print(f"✅ [LLMGrammarChecker] Fixed JSON by removing internal quotes")
+                        repaired = True
+                    except (json.JSONDecodeError, Exception):
+                        pass
+                
+                # Strategy 3: Last resort - skip this paragraph
+                if not repaired:
+                    print(f"❌ [LLMGrammarChecker] Could not fix JSON, skipping paragraph")
+                    return []
             
             if "issues" not in result or not isinstance(result["issues"], list):
                 return []
@@ -316,6 +340,52 @@ REMEMBER: NO quotation marks in problem/fix fields, and British/American spellin
                 if enabled_categories and category not in categories_to_check:
                     # Skip this issue - it's not in the requested categories
                     continue
+                
+                # CRITICAL: Filter out British/American spelling variant issues
+                # Only filter if the problem explicitly mentions British/American variants
+                problem_lower = issue_data["problem"].lower()
+                
+                # More targeted detection - must explicitly mention variants
+                is_variant_issue = (
+                    ('british' in problem_lower and 'american' in problem_lower) or
+                    ('variant' in problem_lower and ('spelling' in problem_lower or 'convention' in problem_lower)) or
+                    'spelling convention' in problem_lower
+                )
+                
+                if is_variant_issue:
+                    print(f"   ⚠️ Filtered out British/American variant issue: {issue_data['problem'][:60]}...")
+                    continue
+                
+                # CRITICAL: Validate that the issue makes sense
+                # Check if the original_text actually appears in the paragraph being analyzed
+                original_text_clean = issue_data["original_text"].strip()
+                
+                # Normalize whitespace for comparison (multiple spaces -> single space)
+                import re
+                paragraph_normalized = re.sub(r'\s+', ' ', paragraph_text.strip())
+                original_normalized = re.sub(r'\s+', ' ', original_text_clean)
+                
+                # Check for exact match or substantial overlap (at least 70% of words match)
+                if original_normalized not in paragraph_normalized:
+                    # Try fuzzy matching - check if most words are present
+                    original_words = set(original_normalized.lower().split())
+                    paragraph_words = set(paragraph_normalized.lower().split())
+                    
+                    if len(original_words) > 0:
+                        overlap = len(original_words & paragraph_words) / len(original_words)
+                        if overlap < 0.7:  # Less than 70% word overlap
+                            print(f"   ⚠️ Filtered out hallucinated issue: original_text not found in paragraph")
+                            print(f"      Claimed: '{original_text_clean[:60]}...'")
+                            continue
+                
+                # Check if corrected_text is substantially different from original
+                corrected_text_clean = issue_data["corrected_text"].strip()
+                if len(original_text_clean) > 0 and len(corrected_text_clean) > 0:
+                    # More lenient length check - allow up to 3x difference for legitimate corrections
+                    length_ratio = len(corrected_text_clean) / len(original_text_clean)
+                    if length_ratio < 0.3 or length_ratio > 3.0:
+                        print(f"   ⚠️ Filtered out suspicious issue: correction length mismatch (ratio: {length_ratio:.2f})")
+                        continue
                 
                 issue = GrammarIssue(
                     line_number=starting_line_number,
