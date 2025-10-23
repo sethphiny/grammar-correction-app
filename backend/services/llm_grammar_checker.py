@@ -77,10 +77,15 @@ class LLMGrammarChecker:
             'parallelism_concision': 'parallel structure and conciseness',
             
             # Mechanics
-            'spelling': 'spelling errors',
+            'spelling': 'spelling errors (NOT proper nouns or British/American variants)',
             'punctuation': 'punctuation errors',
             'capitalisation': 'capitalization errors',
             'dialogue': 'dialogue formatting and punctuation',
+            'ellipsis': 'ellipsis usage and formatting',
+            'hyphenation': 'hyphenation and compound word formation',
+            'missing_period': 'missing periods at end of sentences',
+            'number_style': 'number formatting and consistency',
+            'broken_quote': 'broken or improperly formatted quotations',
             
             # Advanced
             'ambiguous_pronouns': 'ambiguous pronoun references',
@@ -88,6 +93,7 @@ class LLMGrammarChecker:
             'fragment': 'sentence fragments',
             'run_on': 'run-on sentences',
             'comma_splice': 'comma splices',
+            'split_line': 'improperly split lines or sentences',
             
             # Additional
             'article_specificity': 'article usage (a, an, the)',
@@ -97,6 +103,8 @@ class LLMGrammarChecker:
             'coordination': 'coordination and conjunctions',
             'register': 'appropriate formality level',
             'repetition': 'unnecessary repetition',
+            'compounds': 'compound word formation and usage',
+            'pronoun_reference': 'pronoun reference and antecedent clarity',
         }
         
         # All available categories
@@ -164,43 +172,55 @@ class LLMGrammarChecker:
             
             categories_text = '\n'.join(category_descriptions)
             
-            prompt = f"""Analyze the following paragraph for grammar, spelling, and style issues. Be precise and only flag genuine errors.
+            prompt = f"""Analyze the following paragraph ONLY for the specific issue types listed below.
 
 **Paragraph to Analyze:**
 {paragraph_text}
 {context_section}
 
-**Categories to Check:**
+**Categories to Check (ONLY THESE):**
 {categories_text}
 
-ONLY check for issues in the categories listed above. Do not report issues outside these categories.
+⚠️ CRITICAL: ONLY report issues that fall into the categories listed above.
+⚠️ If you find an issue that is NOT in the above categories, DO NOT report it.
+⚠️ The "category" field in your response MUST be one of: {', '.join(categories_to_check)}
+
+**SPELLING CATEGORY RULES (EXTREMELY IMPORTANT):**
+- British spellings (colour, flavour, honour, behaviour, etc.) are CORRECT - do NOT flag them
+- American spellings (color, flavor, honor, behavior, etc.) are CORRECT - do NOT flag them
+- ONLY flag actual misspellings, NOT regional spelling variants
+- Proper nouns and official names are ALWAYS correct (Labour Party, Organisation, etc.)
+- Technical terms, brand names, and specialized vocabulary are correct
 
 **CRITICAL RULES:**
-1. Only report ACTUAL grammar/spelling errors, NOT style preferences
+1. Only report ACTUAL errors in the specified categories, NOT style preferences
 2. Preserve the writer's voice - don't impose formal style on casual writing
 3. Context matters - use surrounding text to understand intent
 4. Be conservative - when in doubt, don't flag it
 5. For each issue, provide:
    - The EXACT problematic text from the paragraph
-   - Clear explanation WITHOUT using quotation marks in your explanation
+   - Clear explanation WITHOUT using quotation marks or apostrophes
    - The corrected version (minimal changes only)
+   - Category MUST be one from the list above
    - Confidence level (0.0-1.0)
 
 **CRITICAL JSON FORMATTING:**
-- Do NOT use quotation marks or apostrophes in the problem/fix fields
-- Instead of writing: Change "word" to "other"
+- NEVER use quotation marks or apostrophes in the problem or fix fields
+- Instead of: Change "word" to "other"
 - Write: Change word to other
-- Use single words or rephrase to avoid quoting
+- Instead of: The word "example" should be
+- Write: The word example should be
+- Use descriptive text without quoting
 
 Return ONLY valid JSON (no markdown blocks, no extra text):
 {{
     "issues": [
         {{
             "original_text": "the exact problematic sentence",
-            "problem": "Explanation without any quotation marks",
-            "fix": "Change this to that without using quotes",
+            "problem": "Brief explanation without quotation marks",
+            "fix": "Descriptive fix without quotation marks",
             "corrected_text": "The corrected sentence",
-            "category": "one of the categories",
+            "category": "MUST be one of: {', '.join(categories_to_check)}",
             "confidence": 0.95
         }}
     ]
@@ -208,7 +228,7 @@ Return ONLY valid JSON (no markdown blocks, no extra text):
 
 If no issues: {{"issues": []}}
 
-DO NOT use quotation marks inside problem or fix fields!"""
+REMEMBER: NO quotation marks in problem/fix fields, and British/American spellings are BOTH valid!"""
             
             # Estimate tokens
             prompt_tokens = self.count_tokens(prompt)
@@ -223,7 +243,7 @@ DO NOT use quotation marks inside problem or fix fields!"""
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are an expert grammar checker. Only flag genuine errors. Preserve writer's voice and style. Return ONLY valid JSON with properly escaped quotes."
+                            "content": "You are an expert grammar checker. Only flag genuine errors. Preserve writer's voice and style. DO NOT flag proper nouns, official names, or British/American spelling variants. Be conservative. Return ONLY valid JSON with properly escaped quotes."
                         },
                         {
                             "role": "user",
@@ -288,8 +308,14 @@ DO NOT use quotation marks inside problem or fix fields!"""
                 
                 # Map category
                 category = issue_data["category"]
-                if category not in self.categories:
+                if category not in self.all_categories:
                     category = "grammar"  # Default fallback
+                
+                # CRITICAL: Filter by enabled categories
+                # If user selected specific categories, only include issues from those categories
+                if enabled_categories and category not in categories_to_check:
+                    # Skip this issue - it's not in the requested categories
+                    continue
                 
                 issue = GrammarIssue(
                     line_number=starting_line_number,
