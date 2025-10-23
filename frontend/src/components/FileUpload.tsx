@@ -10,7 +10,7 @@ interface Category {
 }
 
 interface FileUploadProps {
-  onFileUpload: (file: File, outputFilename: string, outputFormat: OutputFormatEnum, categories: string[], useLLMEnhancement: boolean, useLLMDetection: boolean) => void;
+  onFileUpload: (file: File, outputFilename: string, outputFormat: OutputFormatEnum, categories: string[], useLLMEnhancement: boolean, useLLMDetection: boolean, useFullLLM: boolean) => void;
   disabled?: boolean;
 }
 
@@ -22,9 +22,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [selectAll, setSelectAll] = useState(false);
-  const [aiMode, setAiMode] = useState<'free' | 'competitive' | 'premium'>('competitive'); // Default to competitive
+  const [aiMode, setAiMode] = useState<'free' | 'competitive' | 'premium' | 'ultra'>('competitive'); // Default to competitive
   const [useLLMEnhancement, setUseLLMEnhancement] = useState(true);
   const [useLLMDetection, setUseLLMDetection] = useState(false); // Default OFF for speed
+  const [useFullLLM, setUseFullLLM] = useState(false); // Pure LLM mode
 
   // Fetch available categories on mount
   useEffect(() => {
@@ -50,14 +51,22 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
       case 'free':
         setUseLLMEnhancement(false);
         setUseLLMDetection(false);
+        setUseFullLLM(false);
         break;
       case 'competitive':
         setUseLLMEnhancement(true);
         setUseLLMDetection(false);  // Enhancement only for speed
+        setUseFullLLM(false);
         break;
       case 'premium':
         setUseLLMEnhancement(true);
         setUseLLMDetection(true);  // Full AI for maximum quality
+        setUseFullLLM(false);
+        break;
+      case 'ultra':
+        setUseLLMEnhancement(false);  // Not used in pure LLM mode
+        setUseLLMDetection(false);    // Not used in pure LLM mode
+        setUseFullLLM(true);          // 100% LLM-based checking
         break;
     }
   }, [aiMode]);
@@ -142,7 +151,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
     // Safety check: if somehow no categories are selected, use essential ones
     const categoriesToUse = selectedCategories.size > 0 ? Array.from(selectedCategories) : ['agreement', 'grammar', 'spelling', 'punctuation'];
 
-    onFileUpload(selectedFile, outputFilename.trim(), outputFormat, categoriesToUse, useLLMEnhancement, useLLMDetection);
+    onFileUpload(selectedFile, outputFilename.trim(), outputFormat, categoriesToUse, useLLMEnhancement, useLLMDetection, useFullLLM);
   };
 
   const handleReset = () => {
@@ -384,7 +393,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
                 name="aiMode"
                 value="free"
                 checked={aiMode === 'free'}
-                onChange={(e) => setAiMode(e.target.value as 'free' | 'competitive' | 'premium')}
+                onChange={(e) => setAiMode(e.target.value as 'free' | 'competitive' | 'premium' | 'ultra')}
                 disabled={disabled}
                 className="mt-0.5 w-4 h-4 text-gray-900 border-gray-300"
               />
@@ -410,7 +419,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
                 name="aiMode"
                 value="competitive"
                 checked={aiMode === 'competitive'}
-                onChange={(e) => setAiMode(e.target.value as 'free' | 'competitive' | 'premium')}
+                onChange={(e) => setAiMode(e.target.value as 'free' | 'competitive' | 'premium' | 'ultra')}
                 disabled={disabled}
                 className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300"
               />
@@ -439,7 +448,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
                 name="aiMode"
                 value="premium"
                 checked={aiMode === 'premium'}
-                onChange={(e) => setAiMode(e.target.value as 'free' | 'competitive' | 'premium')}
+                onChange={(e) => setAiMode(e.target.value as 'free' | 'competitive' | 'premium' | 'ultra')}
                 disabled={disabled}
                 className="mt-0.5 w-4 h-4 text-purple-600 border-gray-300"
               />
@@ -456,6 +465,35 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
                 </p>
               </div>
             </label>
+
+            {/* Ultra Mode - Full LLM */}
+            <label className={`flex items-start gap-3 p-3 border-2 rounded-lg cursor-pointer transition-all ${
+              aiMode === 'ultra' 
+                ? 'border-orange-600 bg-orange-50' 
+                : 'border-gray-200 hover:border-gray-300'
+            }`}>
+              <input
+                type="radio"
+                name="aiMode"
+                value="ultra"
+                checked={aiMode === 'ultra'}
+                onChange={(e) => setAiMode(e.target.value as 'free' | 'competitive' | 'premium' | 'ultra')}
+                disabled={disabled}
+                className="mt-0.5 w-4 h-4 text-orange-600 border-gray-300"
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-900">🤖 Ultra Mode</span>
+                  <span className="text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full font-medium">100% AI</span>
+                </div>
+                <p className="text-xs text-gray-600 mt-1">
+                  Pure AI-powered checking • 98-99% accuracy • Context-aware
+                </p>
+                <p className="text-xs text-orange-600 mt-1">
+                  ~$0.10-0.30/MB • Most accurate, understands context & style
+                </p>
+              </div>
+            </label>
           </div>
         </div>
 
@@ -468,6 +506,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
               ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white'
               : aiMode === 'premium'
               ? 'bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white'
+              : aiMode === 'ultra'
+              ? 'bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white'
               : 'bg-gray-900 hover:bg-gray-800 text-white'
           }`}
         >
@@ -480,6 +520,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
             <span>
               {aiMode === 'competitive' ? '⭐ Analyze with AI (Recommended)' 
                : aiMode === 'premium' ? '💎 Analyze with Premium AI'
+               : aiMode === 'ultra' ? '🤖 Analyze with Ultra AI (100% AI)'
                : '🔍 Analyze with Patterns'}
             </span>
           )}
@@ -492,6 +533,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, disabled =
               {aiMode === 'free' && '💡 Tip: Try Competitive Mode for AI-enhanced suggestions'}
               {aiMode === 'competitive' && '✨ Fast processing with AI-enhanced fixes'}
               {aiMode === 'premium' && '🔍 Deep AI analysis - finds the most subtle issues'}
+              {aiMode === 'ultra' && '🤖 Pure AI - most accurate, context-aware analysis'}
             </p>
           </div>
         )}

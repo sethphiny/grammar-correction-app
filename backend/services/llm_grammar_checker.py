@@ -1,0 +1,434 @@
+"""
+Full LLM-Based Grammar Checker
+
+This is a pure AI-powered grammar checker that uses LLM for both detection and correction.
+Much more accurate than pattern-based approaches, with full context awareness.
+"""
+
+import os
+import json
+import asyncio
+from typing import List, Dict, Any, Optional, Tuple, Callable
+from models.schemas import DocumentData, GrammarIssue
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+# Import OpenAI
+try:
+    from openai import AsyncOpenAI
+    import tiktoken
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+    AsyncOpenAI = None
+    tiktoken = None
+    print("⚠️ Warning: openai package not installed. LLM grammar checking will be disabled.")
+
+
+class LLMGrammarChecker:
+    """
+    Pure LLM-based grammar checker using GPT-4o-mini or GPT-4.
+    
+    Advantages over pattern-based:
+    - Context-aware detection
+    - Understands writer's intent and style
+    - Natural, accurate corrections
+    - No false positives from rigid rules
+    - Handles complex grammar issues
+    """
+    
+    def __init__(self):
+        """Initialize LLM grammar checker"""
+        self.enabled = os.getenv("LLM_ENHANCEMENT_ENABLED", "false").lower() == "true"
+        self.model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+        self.client = None
+        self.tokenizer = None
+        
+        # Initialize if enabled
+        if self.enabled and OPENAI_AVAILABLE:
+            api_key = os.getenv("OPENAI_API_KEY")
+            if api_key:
+                try:
+                    self.client = AsyncOpenAI(api_key=api_key)
+                    self.tokenizer = tiktoken.encoding_for_model("gpt-4o-mini")
+                    print(f"✅ [LLMGrammarChecker] Initialized with {self.model}")
+                except Exception as e:
+                    print(f"❌ [LLMGrammarChecker] Failed to initialize: {e}")
+                    self.enabled = False
+            else:
+                print("⚠️ [LLMGrammarChecker] OPENAI_API_KEY not set")
+                self.enabled = False
+        
+        # Map pattern-based categories to LLM checking instructions
+        # This ensures Ultra Mode can check the same categories as pattern mode
+        self.category_mapping = {
+            # Core Grammar
+            'grammar': 'general grammar errors, verb tenses, sentence structure',
+            'agreement': 'subject-verb agreement, pronoun-antecedent agreement',
+            'tense_consistency': 'verb tense consistency and narrative flow',
+            
+            # Style & Clarity
+            'awkward_phrasing': 'awkward or unnatural phrasing',
+            'redundancy': 'redundant words and phrases',
+            'clarity': 'unclear or confusing expressions',
+            'word_order': 'incorrect word order',
+            'parallelism_concision': 'parallel structure and conciseness',
+            
+            # Mechanics
+            'spelling': 'spelling errors',
+            'punctuation': 'punctuation errors',
+            'capitalisation': 'capitalization errors',
+            'dialogue': 'dialogue formatting and punctuation',
+            
+            # Advanced
+            'ambiguous_pronouns': 'ambiguous pronoun references',
+            'dangling_clause': 'dangling modifiers and clauses',
+            'fragment': 'sentence fragments',
+            'run_on': 'run-on sentences',
+            'comma_splice': 'comma splices',
+            
+            # Additional
+            'article_specificity': 'article usage (a, an, the)',
+            'preposition': 'preposition usage',
+            'possessive': 'possessive forms',
+            'contrast': 'contrast and comparison expressions',
+            'coordination': 'coordination and conjunctions',
+            'register': 'appropriate formality level',
+            'repetition': 'unnecessary repetition',
+        }
+        
+        # All available categories
+        self.all_categories = list(self.category_mapping.keys())
+    
+    def count_tokens(self, text: str) -> int:
+        """Count tokens in text"""
+        if not self.tokenizer:
+            return len(text) // 4
+        return len(self.tokenizer.encode(text))
+    
+    async def check_paragraph(
+        self,
+        paragraph_text: str,
+        paragraph_number: int,
+        starting_line_number: int,
+        context_before: str = "",
+        context_after: str = "",
+        enabled_categories: Optional[List[str]] = None
+    ) -> List[GrammarIssue]:
+        """
+        Check a paragraph using LLM for grammar issues.
+        
+        Args:
+            paragraph_text: The paragraph to check
+            paragraph_number: Paragraph number in document
+            starting_line_number: Line number where paragraph starts
+            context_before: Text before this paragraph (for context)
+            context_after: Text after this paragraph (for context)
+            enabled_categories: Optional list of categories to check
+            
+        Returns:
+            List of grammar issues found
+        """
+        if not self.enabled or not self.client:
+            return []
+        
+        # Filter categories based on user selection
+        if enabled_categories:
+            # Use only the categories selected by the user
+            categories_to_check = [c for c in enabled_categories if c in self.category_mapping]
+            if not categories_to_check:
+                # If none match, fall back to all categories
+                print(f"⚠️ [LLMGrammarChecker] No matching categories, using all")
+                categories_to_check = self.all_categories
+        else:
+            # If no categories specified, check all
+            categories_to_check = self.all_categories
+        
+        try:
+            # Build context section
+            context_section = ""
+            if context_before or context_after:
+                context_section = "\n\n**Context (for reference):**"
+                if context_before:
+                    context_section += f"\n[Previous paragraph]: {context_before[-200:]}"
+                if context_after:
+                    context_section += f"\n[Next paragraph]: {context_after[:200]}"
+            
+            # Build category descriptions for the prompt
+            category_descriptions = []
+            for cat in categories_to_check:
+                desc = self.category_mapping.get(cat, cat)
+                category_descriptions.append(f"- {cat}: {desc}")
+            
+            categories_text = '\n'.join(category_descriptions)
+            
+            prompt = f"""Analyze the following paragraph for grammar, spelling, and style issues. Be precise and only flag genuine errors.
+
+**Paragraph to Analyze:**
+{paragraph_text}
+{context_section}
+
+**Categories to Check:**
+{categories_text}
+
+ONLY check for issues in the categories listed above. Do not report issues outside these categories.
+
+**CRITICAL RULES:**
+1. Only report ACTUAL grammar/spelling errors, NOT style preferences
+2. Preserve the writer's voice - don't impose formal style on casual writing
+3. Context matters - use surrounding text to understand intent
+4. Be conservative - when in doubt, don't flag it
+5. For each issue, provide:
+   - The EXACT problematic text from the paragraph
+   - Clear explanation WITHOUT using quotation marks in your explanation
+   - The corrected version (minimal changes only)
+   - Confidence level (0.0-1.0)
+
+**CRITICAL JSON FORMATTING:**
+- Do NOT use quotation marks or apostrophes in the problem/fix fields
+- Instead of writing: Change "word" to "other"
+- Write: Change word to other
+- Use single words or rephrase to avoid quoting
+
+Return ONLY valid JSON (no markdown blocks, no extra text):
+{{
+    "issues": [
+        {{
+            "original_text": "the exact problematic sentence",
+            "problem": "Explanation without any quotation marks",
+            "fix": "Change this to that without using quotes",
+            "corrected_text": "The corrected sentence",
+            "category": "one of the categories",
+            "confidence": 0.95
+        }}
+    ]
+}}
+
+If no issues: {{"issues": []}}
+
+DO NOT use quotation marks inside problem or fix fields!"""
+            
+            # Estimate tokens
+            prompt_tokens = self.count_tokens(prompt)
+            max_response_tokens = min(1000, max(300, len(paragraph_text) // 2))
+            
+            print(f"[LLMGrammarChecker] Checking paragraph {paragraph_number} ({len(paragraph_text)} chars)")
+            
+            # Call LLM
+            response = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are an expert grammar checker. Only flag genuine errors. Preserve writer's voice and style. Return ONLY valid JSON with properly escaped quotes."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    max_tokens=max_response_tokens,
+                    temperature=0.0,  # Most deterministic for proper JSON
+                    response_format={"type": "json_object"}
+                ),
+                timeout=30.0
+            )
+            
+            # Parse response
+            response_text = response.choices[0].message.content.strip()
+            
+            try:
+                result = json.loads(response_text)
+            except json.JSONDecodeError as e:
+                print(f"⚠️ [LLMGrammarChecker] JSON parsing error: {e}")
+                print(f"   Response preview: {response_text[:300]}...")
+                
+                # Try multiple JSON repair strategies
+                repaired = False
+                
+                # Strategy 1: Remove markdown code blocks
+                if "```json" in response_text:
+                    try:
+                        import re
+                        json_match = re.search(r'```json\s*([\s\S]*?)\s*```', response_text)
+                        if json_match:
+                            response_text = json_match.group(1).strip()
+                            result = json.loads(response_text)
+                            print(f"✅ [LLMGrammarChecker] Fixed JSON by removing markdown blocks")
+                            repaired = True
+                    except json.JSONDecodeError:
+                        pass
+                
+                # Strategy 2: Try to extract and fix the JSON manually
+                if not repaired:
+                    try:
+                        # Find the issues array and try to parse it with lenient mode
+                        # This is a last resort - just return empty to skip problematic paragraphs
+                        print(f"❌ [LLMGrammarChecker] Could not fix JSON, skipping paragraph")
+                        return []
+                    except Exception:
+                        return []
+            
+            if "issues" not in result or not isinstance(result["issues"], list):
+                return []
+            
+            # Convert to GrammarIssue objects
+            grammar_issues = []
+            for issue_data in result["issues"]:
+                # Validate required fields
+                if not all(key in issue_data for key in ["original_text", "problem", "fix", "corrected_text", "category", "confidence"]):
+                    continue
+                
+                # Filter by confidence
+                if issue_data["confidence"] < 0.7:
+                    continue
+                
+                # Map category
+                category = issue_data["category"]
+                if category not in self.categories:
+                    category = "grammar"  # Default fallback
+                
+                issue = GrammarIssue(
+                    line_number=starting_line_number,
+                    sentence_number=1,
+                    original_text=issue_data["original_text"],
+                    problem=issue_data["problem"],
+                    fix=issue_data["fix"],
+                    category=category,
+                    confidence=min(float(issue_data["confidence"]), 0.95),
+                    corrected_sentence=issue_data["corrected_text"]
+                )
+                
+                # Validate that correction actually changes something
+                if issue.corrected_sentence.strip() != issue.original_text.strip():
+                    grammar_issues.append(issue)
+            
+            print(f"[LLMGrammarChecker] Found {len(grammar_issues)} issues in paragraph {paragraph_number}")
+            return grammar_issues
+            
+        except asyncio.TimeoutError:
+            print(f"⚠️ [LLMGrammarChecker] Timeout checking paragraph {paragraph_number}")
+            return []
+        except Exception as e:
+            print(f"⚠️ [LLMGrammarChecker] Error checking paragraph {paragraph_number}: {e}")
+            return []
+    
+    async def check_document(
+        self,
+        document_data: DocumentData,
+        progress_callback: Optional[Callable] = None,
+        enabled_categories: Optional[List[str]] = None,
+        chunk_size: int = 5
+    ) -> Tuple[List[GrammarIssue], Dict[str, Any]]:
+        """
+        Check entire document using LLM.
+        
+        Strategy: Process paragraphs in chunks for efficiency and context.
+        
+        Args:
+            document_data: Document to check
+            progress_callback: Optional progress callback
+            enabled_categories: Optional list of categories to check
+            chunk_size: Number of lines to process as one paragraph
+            
+        Returns:
+            Tuple of (issues, metadata)
+        """
+        if not self.enabled or not self.client:
+            return [], {
+                "llm_enabled": False,
+                "error": "LLM not enabled or not available"
+            }
+        
+        print(f"[LLMGrammarChecker] 🤖 Starting full LLM-based grammar check")
+        
+        # Show which categories are being checked
+        if enabled_categories:
+            valid_cats = [c for c in enabled_categories if c in self.category_mapping]
+            print(f"[LLMGrammarChecker] Checking categories: {valid_cats}")
+        else:
+            print(f"[LLMGrammarChecker] Checking ALL categories")
+        
+        all_issues = []
+        total_lines = len(document_data.lines)
+        
+        # Group lines into paragraphs (empty lines separate paragraphs)
+        paragraphs = []
+        current_paragraph = []
+        current_start_line = 1
+        
+        for i, line in enumerate(document_data.lines, 1):
+            if line.content.strip():
+                if not current_paragraph:
+                    current_start_line = i
+                current_paragraph.append(line.content)
+            else:
+                if current_paragraph:
+                    paragraphs.append({
+                        "text": " ".join(current_paragraph),
+                        "start_line": current_start_line,
+                        "lines": current_paragraph
+                    })
+                    current_paragraph = []
+        
+        # Add last paragraph if exists
+        if current_paragraph:
+            paragraphs.append({
+                "text": " ".join(current_paragraph),
+                "start_line": current_start_line,
+                "lines": current_paragraph
+            })
+        
+        print(f"[LLMGrammarChecker] Processing {len(paragraphs)} paragraphs")
+        
+        # Process each paragraph
+        for idx, para in enumerate(paragraphs):
+            # Get context
+            context_before = ""
+            context_after = ""
+            
+            if idx > 0:
+                context_before = paragraphs[idx - 1]["text"]
+            
+            if idx < len(paragraphs) - 1:
+                context_after = paragraphs[idx + 1]["text"]
+            
+            # Check paragraph
+            issues = await self.check_paragraph(
+                paragraph_text=para["text"],
+                paragraph_number=idx + 1,
+                starting_line_number=para["start_line"],
+                context_before=context_before,
+                context_after=context_after,
+                enabled_categories=enabled_categories
+            )
+            
+            all_issues.extend(issues)
+            
+            # Update progress
+            if progress_callback:
+                progress = int(((idx + 1) / len(paragraphs)) * 100)
+                await progress_callback(idx + 1, len(paragraphs), len(all_issues))
+        
+        metadata = {
+            "llm_enabled": True,
+            "mode": "full_llm",
+            "paragraphs_processed": len(paragraphs),
+            "total_issues": len(all_issues),
+            "model": self.model
+        }
+        
+        print(f"[LLMGrammarChecker] ✅ Complete - Found {len(all_issues)} issues")
+        
+        return all_issues, metadata
+    
+    def get_available_categories(self) -> List[Dict[str, Any]]:
+        """Get list of available grammar checking categories"""
+        return [
+            {'id': cat, 'name': cat.replace('_', ' ').title()}
+            for cat in self.all_categories
+        ]
+

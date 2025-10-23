@@ -189,5 +189,6 @@ spacy_models/
 electron/build/
 electron/dist/
 electron/resources/backend
+electron/resources/frontend
 backend/dist/
 backend/build/

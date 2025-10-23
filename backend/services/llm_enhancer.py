@@ -238,6 +238,144 @@ class LLMEnhancer:
         # Default: enhance if confidence is not extremely high
         return issue.confidence < 0.98  # Enhanced: was 0.95, now 0.98
     
+    async def generate_corrected_sentence(
+        self,
+        original_text: str,
+        fix_description: str,
+        category: str
+    ) -> Optional[str]:
+        """
+        Generate corrected sentence using LLM based on fix description
+        
+        Args:
+            original_text: The original sentence with the issue
+            fix_description: Description of what needs to be fixed
+            category: The category of the issue
+            
+        Returns:
+            Corrected sentence or None if generation fails
+        """
+        if not self.enabled or not self.client:
+            return None
+        
+        try:
+            # Count tokens in original text to set appropriate max_tokens
+            original_tokens = self.count_tokens(original_text)
+            # Allow 1.5x the original length plus 50 tokens for JSON structure
+            max_response_tokens = min(int(original_tokens * 1.5) + 50, 1000)
+            
+            prompt = f"""Apply ONLY the grammar fix specified below. Do NOT rewrite or expand the sentence.
+
+**Original Sentence (DO NOT CHANGE ANYTHING EXCEPT THE FIX):** "{original_text}"
+**ONLY Apply This Fix:** {fix_description}
+
+**CRITICAL INSTRUCTIONS:**
+1. Take the EXACT original sentence above
+2. Apply ONLY the single fix specified (change one word/phrase as described)
+3. Return the sentence with ONLY that one change applied
+4. DO NOT rewrite, expand, or add content
+5. DO NOT change anything else in the sentence
+6. Properly escape quotes in JSON - use \\" for dialogue quotes
+
+**WRONG Example (DO NOT DO THIS):**
+Original: "He walked to the store all of a sudden"
+Fix: Change "all of a sudden" to "suddenly"
+BAD Response: "He quickly walked to the nearby grocery store suddenly" ❌ (rewrote too much)
+
+**CORRECT Example (DO THIS):**
+Original: "He walked to the store all of a sudden"
+Fix: Change "all of a sudden" to "suddenly"
+GOOD Response: "He walked to the store suddenly" ✅ (only applied the fix)
+
+Return ONLY valid JSON:
+{{
+    "corrected_sentence": "exact original sentence with ONLY the specified fix applied"
+}}"""
+            
+            # Call LLM with shorter timeout for quick generation
+            response = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a precision grammar tool. Apply ONLY the requested fix. DO NOT rewrite or expand sentences. Return ONLY valid JSON with the minimally-changed sentence."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    max_tokens=max_response_tokens,
+                    temperature=0.0,  # Lower to 0.0 for more precise, deterministic output
+                    response_format={"type": "json_object"}
+                ),
+                timeout=20.0  # Slightly longer timeout for safety
+            )
+            
+            response_text = response.choices[0].message.content.strip()
+            
+            # Check if response was truncated (finish_reason != 'stop')
+            if response.choices[0].finish_reason != 'stop':
+                print(f"⚠️ [LLMEnhancer] Response was truncated (finish_reason: {response.choices[0].finish_reason})")
+                print(f"   Original text length: {len(original_text)} chars ({original_tokens} tokens)")
+                print(f"   Max tokens allowed: {max_response_tokens}")
+                print(f"   LLM is rewriting too much content instead of just applying the fix!")
+                return None
+            
+            # Try to parse JSON
+            try:
+                result = json.loads(response_text)
+                corrected = result.get("corrected_sentence", "").strip()
+            except json.JSONDecodeError as json_err:
+                # If JSON parsing fails, try to extract the corrected sentence manually
+                # This handles cases where the LLM returned quotes that broke JSON
+                print(f"⚠️ [LLMEnhancer] JSON parsing error, attempting manual extraction: {json_err}")
+                print(f"📝 [LLMEnhancer] Raw response causing error:")
+                print(f"   Original text: {original_text[:100]}...")
+                print(f"   Fix description: {fix_description[:100]}...")
+                print(f"   LLM Response: {response_text}")
+                print(f"   Response length: {len(response_text)} chars")
+                
+                # Try to find corrected_sentence value between quotes
+                import re
+                match = re.search(r'"corrected_sentence"\s*:\s*"((?:[^"\\]|\\.)*)"', response_text)
+                if not match:
+                    print(f"🔍 [LLMEnhancer] First pattern failed, trying alternative pattern...")
+                    # Try with escaped quotes or different patterns
+                    match = re.search(r'"corrected_sentence"\s*:\s*"([^"]*(?:\\"[^"]*)*)"', response_text, re.DOTALL)
+                
+                if match:
+                    corrected = match.group(1).strip()
+                    print(f"✅ [LLMEnhancer] Extracted via regex: {corrected[:100]}...")
+                    # Unescape any escaped characters
+                    corrected = corrected.replace('\\"', '"').replace('\\n', '\n')
+                else:
+                    print(f"❌ [LLMEnhancer] Could not extract corrected sentence from response")
+                    print(f"   Tried patterns:")
+                    print(f"   1. '\"corrected_sentence\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"'")
+                    print(f"   2. '\"corrected_sentence\"\\s*:\\s*\"([^\"]*(?:\\\\\"[^\"]*)*)\"'")
+                    
+                    # Try to show what we found in the response
+                    if '"corrected_sentence"' in response_text:
+                        idx = response_text.find('"corrected_sentence"')
+                        snippet = response_text[idx:idx+200]
+                        print(f"   Found key at position {idx}, snippet: {snippet}")
+                    else:
+                        print(f"   Key 'corrected_sentence' not found in response at all")
+                    
+                    return None
+            
+            # Validate that something changed
+            if corrected and corrected != original_text.strip():
+                return corrected
+            
+            return None
+            
+        except Exception as e:
+            print(f"⚠️ [LLMEnhancer] Error generating corrected sentence: {e}")
+            return None
+    
     async def enhance_issue(
         self, 
         issue: GrammarIssue,

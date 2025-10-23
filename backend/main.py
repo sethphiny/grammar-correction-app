@@ -45,6 +45,7 @@ if not env_loaded:
 
 from services.document_parser import DocumentParser
 from services.grammar_checker import GrammarChecker
+from services.llm_grammar_checker import LLMGrammarChecker
 from services.report_generator import ReportGenerator
 from services.progress_tracker import ProgressTracker
 from services.performance_logger import get_performance_logger
@@ -74,6 +75,7 @@ app.add_middleware(
 # Initialize services
 document_parser = DocumentParser()
 grammar_checker = GrammarChecker()
+llm_grammar_checker = LLMGrammarChecker()
 report_generator = ReportGenerator()
 progress_tracker = ProgressTracker()
 
@@ -125,7 +127,8 @@ async def upload_document(
     output_format: str = Form("docx"),
     categories: str = Form(None),  # Comma-separated category IDs
     use_llm_enhancement: str = Form("false"),  # AI enhancement flag
-    use_llm_detection: str = Form("false")  # AI detection flag (supplementary)
+    use_llm_detection: str = Form("false"),  # AI detection flag (supplementary)
+    use_full_llm: str = Form("false")  # Pure LLM mode flag (no patterns)
 ):
     """
     Upload a document for grammar checking
@@ -137,6 +140,7 @@ async def upload_document(
         categories: Optional comma-separated list of category IDs to check (e.g., "redundancy,grammar") (form field)
         use_llm_enhancement: Enable AI-powered enhancement of fixes (~$0.01-0.03 per MB) (form field)
         use_llm_detection: Enable AI-powered detection for subtle issues (~$0.05-0.15 per MB) (form field)
+        use_full_llm: Use 100% LLM-based checking with no pattern rules (~$0.10-0.30 per MB) (form field)
     """
     # Validate file type
     if not file.filename.lower().endswith(('.doc', '.docx')):
@@ -172,10 +176,19 @@ async def upload_document(
         print(f"[{task_id}] No categories specified - will check all categories")
     
     # Parse LLM parameters
+    print(f"[{task_id}] 🔍 DEBUG - Raw parameters received:")
+    print(f"[{task_id}]   use_llm_enhancement (raw): '{use_llm_enhancement}'")
+    print(f"[{task_id}]   use_llm_detection (raw): '{use_llm_detection}'")
+    print(f"[{task_id}]   use_full_llm (raw): '{use_full_llm}'")
+    
     llm_enhancement_enabled = use_llm_enhancement.lower() in ('true', '1', 'yes')
     llm_detection_enabled = use_llm_detection.lower() in ('true', '1', 'yes')
-    print(f"[{task_id}] LLM Enhancement: {llm_enhancement_enabled}")
-    print(f"[{task_id}] LLM Detection: {llm_detection_enabled}")
+    full_llm_enabled = use_full_llm.lower() in ('true', '1', 'yes')
+    
+    print(f"[{task_id}] 📊 Parsed parameters:")
+    print(f"[{task_id}]   LLM Enhancement: {llm_enhancement_enabled}")
+    print(f"[{task_id}]   LLM Detection: {llm_detection_enabled}")
+    print(f"[{task_id}]   Full LLM Mode: {full_llm_enabled}")
     
     # Store task information
     processing_tasks[task_id] = {
@@ -186,6 +199,7 @@ async def upload_document(
         "categories": enabled_categories,
         "use_llm_enhancement": llm_enhancement_enabled,
         "use_llm_detection": llm_detection_enabled,
+        "use_full_llm": full_llm_enabled,
         "progress": 0,
         "result": None,
         "error": None
@@ -203,7 +217,8 @@ async def upload_document(
         output_format,
         enabled_categories,
         llm_enhancement_enabled,
-        llm_detection_enabled
+        llm_detection_enabled,
+        full_llm_enabled
     )
     
     print(f"[{task_id}] Background task added")
@@ -317,14 +332,15 @@ async def process_document_with_delay(
     output_format: str,
     enabled_categories: list = None,
     use_llm_enhancement: bool = False,
-    use_llm_detection: bool = False
+    use_llm_detection: bool = False,
+    use_full_llm: bool = False
 ):
     """
     Process document with a small delay to ensure WebSocket connects first
     """
     # Wait 1 second to allow WebSocket connection to establish
     await asyncio.sleep(1)
-    await process_document(task_id, file_content, original_filename, output_filename, output_format, enabled_categories, use_llm_enhancement, use_llm_detection)
+    await process_document(task_id, file_content, original_filename, output_filename, output_format, enabled_categories, use_llm_enhancement, use_llm_detection, use_full_llm)
 
 async def process_document(
     task_id: str,
@@ -334,7 +350,8 @@ async def process_document(
     output_format: str,
     enabled_categories: list = None,
     use_llm_enhancement: bool = False,
-    use_llm_detection: bool = False
+    use_llm_detection: bool = False,
+    use_full_llm: bool = False
 ):
     """
     Background task to process the uploaded document with real-time WebSocket updates
@@ -346,8 +363,9 @@ async def process_document(
         output_filename: Output filename
         output_format: Output format (docx or pdf)
         enabled_categories: Optional list of category IDs to check
-        use_llm_enhancement: Enable AI-powered enhancement
-        use_llm_detection: Enable AI-powered detection (supplementary)
+        use_llm_enhancement: Enable AI-powered enhancement of pattern-based results
+        use_llm_detection: Enable AI-powered detection (supplementary to patterns)
+        use_full_llm: Use 100% LLM-based checking (no patterns, pure AI)
     """
     # Initialize performance logger
     perf_logger = get_performance_logger()
@@ -360,8 +378,10 @@ async def process_document(
     )
     
     # Determine AI mode for frontend display
-    if use_llm_detection and use_llm_enhancement:
-        ai_mode_name = "premium"  # Full AI mode
+    if use_full_llm:
+        ai_mode_name = "ultra"  # Pure LLM, no patterns
+    elif use_llm_detection and use_llm_enhancement:
+        ai_mode_name = "premium"  # Full AI mode with patterns
     elif use_llm_enhancement:
         ai_mode_name = "competitive"  # AI Enhancement only
     else:
@@ -484,14 +504,24 @@ async def process_document(
         async def enhancement_progress_callback(data):
             await manager.send_progress(task_id, data)
         
-        issues, enhancement_metadata = await grammar_checker.check_document(
-            document_data,
-            progress_callback=progress_callback,
-            enabled_categories=enabled_categories,
-            use_llm_enhancement=use_llm_enhancement,
-            use_llm_detection=use_llm_detection,
-            enhancement_progress_callback=enhancement_progress_callback
-        )
+        # Choose between Full LLM or Pattern-based checking
+        if use_full_llm:
+            print(f"[{task_id}] 🤖 Using FULL LLM MODE (100% AI-powered)")
+            issues, enhancement_metadata = await llm_grammar_checker.check_document(
+                document_data,
+                progress_callback=progress_callback,
+                enabled_categories=enabled_categories
+            )
+        else:
+            print(f"[{task_id}] 🔧 Using Pattern-based mode with AI enhancements")
+            issues, enhancement_metadata = await grammar_checker.check_document(
+                document_data,
+                progress_callback=progress_callback,
+                enabled_categories=enabled_categories,
+                use_llm_enhancement=use_llm_enhancement,
+                use_llm_detection=use_llm_detection,
+                enhancement_progress_callback=enhancement_progress_callback
+            )
         
         perf_logger.end_stage("checking", {
             "issues_found": len(issues),

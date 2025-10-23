@@ -242,7 +242,8 @@ class GrammarChecker:
         self,
         line_content: str,
         line_number: int,
-        enabled_categories: Optional[List[str]] = None
+        enabled_categories: Optional[List[str]] = None,
+        use_llm_corrections: bool = False
     ) -> List[GrammarIssue]:
         """
         Check a single line for grammar issues using the modular category system.
@@ -294,6 +295,10 @@ class GrammarChecker:
                             line_content[start_idx+len(phrase):]
                         )
                         
+                        # Skip if corrected line is identical to original (false positive)
+                        if corrected_line.strip() == line_content.strip():
+                            continue
+                        
                         issue = GrammarIssue(
                             line_number=line_number,
                             sentence_number=1,
@@ -336,6 +341,10 @@ class GrammarChecker:
                                     line_content[end_pos:]
                                 )
                                 
+                                # Skip if corrected line is identical to original (false positive)
+                                if corrected_line.strip() == line_content.strip():
+                                    continue
+                                
                                 issue = GrammarIssue(
                                     line_number=line_number,
                                     sentence_number=1,
@@ -369,7 +378,37 @@ class GrammarChecker:
             passive_issues = self._detect_passive_voice_spacy(line_content, line_number)
             issues.extend(passive_issues)
         
-        return issues
+        # Generate LLM-based corrected sentences for all issues (if enabled)
+        # This ensures corrected sentences accurately reflect the fix description
+        if use_llm_corrections and self.llm_enhancer and self.llm_enhancer.enabled:
+            for issue in issues:
+                # Only generate if we have a fix description but need a better corrected sentence
+                if issue.fix and issue.fix != "Review and revise as needed":
+                    try:
+                        llm_corrected = await self.llm_enhancer.generate_corrected_sentence(
+                            original_text=issue.original_text,
+                            fix_description=issue.fix,
+                            category=issue.category
+                        )
+                        if llm_corrected:
+                            issue.corrected_sentence = llm_corrected
+                    except Exception as e:
+                        # If LLM generation fails, keep the mechanical correction
+                        pass
+        
+        # Final validation: Remove any issues where corrected sentence is identical to original
+        # This catches false positives that slipped through individual category checks
+        validated_issues = []
+        for issue in issues:
+            if issue.corrected_sentence is not None:
+                # Compare normalized versions (strip whitespace)
+                if issue.corrected_sentence.strip() != issue.original_text.strip():
+                    validated_issues.append(issue)
+            else:
+                # Issues without auto-fix suggestions are always included
+                validated_issues.append(issue)
+        
+        return validated_issues
     
     def _detect_passive_voice_spacy(self, text: str, line_number: int) -> List[GrammarIssue]:
         """
@@ -595,10 +634,13 @@ If no issues, return: []"""
             full_line_content = sanitize_text(line.content)
             
             # STAGE 1: Pattern-based detection
+            # Use LLM corrections when either LLM enhancement OR detection is enabled
+            use_llm_corrections = use_llm_enhancement or use_llm_detection
             line_issues = await self._check_line_content(
                 full_line_content,
                 line.line_number,
-                enabled_categories
+                enabled_categories,
+                use_llm_corrections=use_llm_corrections
             )
             
             all_issues.extend(line_issues)

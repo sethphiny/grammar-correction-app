@@ -26,9 +26,10 @@ interface TimingStats {
 }
 
 interface AIMode {
-  mode: 'free' | 'competitive' | 'premium';
+  mode: 'free' | 'competitive' | 'premium' | 'ultra';
   llmEnhancement: boolean;
   llmDetection: boolean;
+  fullLLM: boolean;
 }
 
 const App: React.FC = () => {
@@ -58,15 +59,20 @@ const App: React.FC = () => {
     outputFormat: OutputFormatEnum,
     categories: string[],
     useLLMEnhancement: boolean,
-    useLLMDetection: boolean
+    useLLMDetection: boolean,
+    useFullLLM: boolean
   ) => {
     try {
-      console.log('Starting file upload:', file.name);
-      console.log('Selected categories:', categories);
-      console.log('AI Enhancement:', useLLMEnhancement);
-      console.log('AI Detection:', useLLMDetection);
+      console.log('🚀 Starting file upload:', file.name);
+      console.log('📋 Selected categories:', categories);
+      console.log('🔍 DEBUG - Parameters being sent:');
+      console.log('  - AI Enhancement:', useLLMEnhancement);
+      console.log('  - AI Detection:', useLLMDetection);
+      console.log('  - Full LLM Mode:', useFullLLM);
+      console.log('  - All three:', { useLLMEnhancement, useLLMDetection, useFullLLM });
       
-      const mode = useLLMDetection && useLLMEnhancement ? 'Full AI' : 
+      const mode = useFullLLM ? 'Ultra AI (100% LLM)' :
+                   useLLMDetection && useLLMEnhancement ? 'Full AI' : 
                    useLLMEnhancement ? 'Enhancement Only' : 'Pattern-Only';
       console.log('Quality Mode:', mode);
       
@@ -81,7 +87,7 @@ const App: React.FC = () => {
 
       // Upload the document
       console.log('Uploading document...');
-      const uploadResponse = await uploadDocument(file, outputFilename, outputFormat, categories, useLLMEnhancement, useLLMDetection);
+      const uploadResponse = await uploadDocument(file, outputFilename, outputFormat, categories, useLLMEnhancement, useLLMDetection, useFullLLM);
       console.log('Upload response:', uploadResponse);
       
       // Set task ID
@@ -115,7 +121,8 @@ const App: React.FC = () => {
                 setAiMode({
                   mode: data.ai_mode,
                   llmEnhancement: data.llm_enhancement || false,
-                  llmDetection: data.llm_detection || false
+                  llmDetection: data.llm_detection || false,
+                  fullLLM: data.ai_mode === 'ultra' || false
                 });
               }
               break;
@@ -461,19 +468,23 @@ const App: React.FC = () => {
             {aiMode && (
               <div className="mb-3 flex items-center justify-center">
                 <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
-                  aiMode.mode === 'premium' 
+                  aiMode.mode === 'ultra'
+                    ? 'bg-gradient-to-r from-orange-100 to-red-100 text-orange-700 border border-orange-200'
+                    : aiMode.mode === 'premium' 
                     ? 'bg-gradient-to-r from-purple-100 to-pink-100 text-purple-700 border border-purple-200' 
                     : aiMode.mode === 'competitive'
                     ? 'bg-gradient-to-r from-blue-100 to-indigo-100 text-blue-700 border border-blue-200'
                     : 'bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 border border-gray-300'
                 }`}>
+                  {aiMode.mode === 'ultra' && '🤖 Ultra Mode'}
                   {aiMode.mode === 'premium' && '👑 Premium Mode'}
                   {aiMode.mode === 'competitive' && '🏆 Competitive Mode'}
                   {aiMode.mode === 'free' && '⚡ Free Mode'}
                   <span className="ml-2 text-xs opacity-75">
-                    {aiMode.llmDetection && aiMode.llmEnhancement && '(AI Detection + Enhancement)'}
-                    {aiMode.llmEnhancement && !aiMode.llmDetection && '(AI Enhancement)'}
-                    {!aiMode.llmEnhancement && !aiMode.llmDetection && '(Pattern-Only)'}
+                    {aiMode.fullLLM && '(100% AI)'}
+                    {!aiMode.fullLLM && aiMode.llmDetection && aiMode.llmEnhancement && '(AI Detection + Enhancement)'}
+                    {!aiMode.fullLLM && aiMode.llmEnhancement && !aiMode.llmDetection && '(AI Enhancement)'}
+                    {!aiMode.fullLLM && !aiMode.llmEnhancement && !aiMode.llmDetection && '(Pattern-Only)'}
                   </span>
                 </div>
               </div>
