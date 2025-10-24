@@ -4,7 +4,7 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Install wget for health checks and enable corepack (pnpm)
-RUN apk add --no-cache wget && corepack enable
+RUN apk add --no-cache wget && corepack enable && corepack prepare pnpm@9.0.0 --activate
 
 # Accept build-time API base URL for CRA
 ARG REACT_APP_API_URL
@@ -15,8 +15,9 @@ COPY frontend/package.json ./
 COPY frontend/pnpm-lock.yaml* ./
 
 # Install dependencies with pnpm (faster, deterministic)
+# Use npm as fallback if pnpm-lock.yaml doesn't exist
 RUN if [ -f pnpm-lock.yaml ]; then \
-        pnpm install --frozen-lockfile; \
+        pnpm install --frozen-lockfile --network-timeout 100000; \
     else \
         npm install --legacy-peer-deps && \
         npm install ajv@^8.0.0 --save-dev --legacy-peer-deps; \

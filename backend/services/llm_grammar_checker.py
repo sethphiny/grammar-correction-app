@@ -8,23 +8,37 @@ Much more accurate than pattern-based approaches, with full context awareness.
 import os
 import json
 import asyncio
-from typing import List, Dict, Any, Optional, Tuple, Callable
+import logging
+import inspect
+from typing import List, Dict, Any, Optional, Tuple, Callable, Union
+from difflib import SequenceMatcher
 from models.schemas import DocumentData, GrammarIssue
 from dotenv import load_dotenv
+
+# Configure structured logging
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 # Import OpenAI
 try:
-    from openai import AsyncOpenAI
+    from openai import AsyncOpenAI, APIError, RateLimitError, APITimeoutError
     import tiktoken
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
     AsyncOpenAI = None
     tiktoken = None
-    print("⚠️ Warning: openai package not installed. LLM grammar checking will be disabled.")
+    logger.warning("openai package not installed. LLM grammar checking will be disabled.")
+
+# Import json-repair for robust JSON parsing
+try:
+    from json_repair import repair_json
+    JSON_REPAIR_AVAILABLE = True
+except ImportError:
+    JSON_REPAIR_AVAILABLE = False
+    logger.warning("json-repair package not installed. Falling back to basic JSON repair.")
 
 
 class LLMGrammarChecker:
@@ -39,12 +53,27 @@ class LLMGrammarChecker:
     - Handles complex grammar issues
     """
     
+    # Model context window sizes (in tokens)
+    MODEL_CONTEXT_WINDOWS = {
+        "gpt-4o-mini": 128000,
+        "gpt-4o": 128000,
+        "gpt-4-turbo": 128000,
+        "gpt-4": 8192,
+        "gpt-3.5-turbo": 16385,
+    }
+    
+    # Retry configuration
+    MAX_RETRIES = 3
+    INITIAL_RETRY_DELAY = 1.0  # seconds
+    MAX_RETRY_DELAY = 10.0  # seconds
+    
     def __init__(self):
         """Initialize LLM grammar checker"""
         self.enabled = os.getenv("LLM_ENHANCEMENT_ENABLED", "false").lower() == "true"
         self.model = os.getenv("LLM_MODEL", "gpt-4o-mini")
         self.client = None
         self.tokenizer = None
+        self.context_window = self.MODEL_CONTEXT_WINDOWS.get(self.model, 128000)
         
         # Initialize if enabled
         if self.enabled and OPENAI_AVAILABLE:
@@ -52,13 +81,20 @@ class LLMGrammarChecker:
             if api_key:
                 try:
                     self.client = AsyncOpenAI(api_key=api_key)
-                    self.tokenizer = tiktoken.encoding_for_model("gpt-4o-mini")
-                    print(f"✅ [LLMGrammarChecker] Initialized with {self.model}")
+                    # Fix: Use self.model instead of hardcoded model name
+                    try:
+                        self.tokenizer = tiktoken.encoding_for_model(self.model)
+                    except KeyError:
+                        # Fallback to cl100k_base encoding if model not found
+                        logger.warning(f"Model {self.model} not found in tiktoken, using cl100k_base encoding")
+                        self.tokenizer = tiktoken.get_encoding("cl100k_base")
+                    
+                    logger.info(f"LLMGrammarChecker initialized with {self.model} (context window: {self.context_window} tokens)")
                 except Exception as e:
-                    print(f"❌ [LLMGrammarChecker] Failed to initialize: {e}")
+                    logger.error(f"Failed to initialize LLMGrammarChecker: {e}", exc_info=True)
                     self.enabled = False
             else:
-                print("⚠️ [LLMGrammarChecker] OPENAI_API_KEY not set")
+                logger.warning("OPENAI_API_KEY not set")
                 self.enabled = False
         
         # Map pattern-based categories to LLM checking instructions
@@ -98,7 +134,7 @@ class LLMGrammarChecker:
             # Additional
             'article_specificity': 'article usage (a, an, the)',
             'preposition': 'preposition usage',
-            'possessive': 'possessive forms',
+            'possessive': "possessive forms (ONLY flag if apostrophe is missing, incorrectly placed, or used for simple plurals - DO NOT flag valid possessives like 'attacks' or 'children's')",
             'contrast': 'contrast and comparison expressions',
             'coordination': 'coordination and conjunctions',
             'register': 'appropriate formality level',
@@ -110,11 +146,187 @@ class LLMGrammarChecker:
         # All available categories
         self.all_categories = list(self.category_mapping.keys())
     
+    async def cleanup(self):
+        """Cleanup resources (close client if needed)"""
+        if self.client:
+            try:
+                await self.client.close()
+                logger.info("AsyncOpenAI client closed successfully")
+            except Exception as e:
+                logger.warning(f"Error closing AsyncOpenAI client: {e}")
+    
     def count_tokens(self, text: str) -> int:
         """Count tokens in text"""
         if not self.tokenizer:
             return len(text) // 4
         return len(self.tokenizer.encode(text))
+    
+    def _check_token_limit(self, prompt_tokens: int, max_response_tokens: int) -> bool:
+        """
+        Check if prompt + response tokens fit within model's context window.
+        
+        Returns:
+            True if within limit, False otherwise
+        """
+        total_tokens = prompt_tokens + max_response_tokens
+        if total_tokens > self.context_window:
+            logger.warning(
+                f"Token limit exceeded: {total_tokens} > {self.context_window} "
+                f"(prompt: {prompt_tokens}, response: {max_response_tokens})"
+            )
+            return False
+        return True
+    
+    def _fuzzy_match_ratio(self, str1: str, str2: str) -> float:
+        """
+        Calculate fuzzy match ratio between two strings using SequenceMatcher.
+        
+        Returns:
+            Float between 0.0 and 1.0, where 1.0 is a perfect match
+        """
+        return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
+    
+    async def _call_with_progress(
+        self,
+        callback: Optional[Callable],
+        *args,
+        **kwargs
+    ):
+        """
+        Call progress callback, handling both sync and async callables.
+        """
+        if callback is None:
+            return
+        
+        try:
+            if inspect.iscoroutinefunction(callback):
+                await callback(*args, **kwargs)
+            else:
+                # Run sync callback in executor to avoid blocking
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, lambda: callback(*args, **kwargs))
+        except Exception as e:
+            logger.warning(f"Error in progress callback: {e}")
+    
+    async def _call_llm_with_retry(
+        self,
+        prompt: str,
+        max_response_tokens: int,
+        timeout: float = 30.0
+    ) -> str:
+        """
+        Call LLM with exponential backoff retry logic.
+        
+        Args:
+            prompt: The prompt to send
+            max_response_tokens: Maximum tokens for response
+            timeout: Timeout for each request
+            
+        Returns:
+            Response text from LLM
+            
+        Raises:
+            Exception: If all retries fail
+        """
+        retry_delay = self.INITIAL_RETRY_DELAY
+        last_exception = None
+        
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                response = await asyncio.wait_for(
+                    self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "You are an expert grammar checker. Only flag genuine errors. Preserve writer's voice and style. DO NOT flag proper nouns, official names, British/American spelling variants, or any names (people, places, companies, products) as spelling errors. DO NOT remove apostrophes from valid possessive forms (e.g., 'attacks' mysterious nature' is correct plural possessive). Be conservative - when in doubt, don't flag it. Return ONLY valid JSON with properly escaped quotes."
+                            },
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ],
+                        max_tokens=max_response_tokens,
+                        temperature=0.0,  # Most deterministic for proper JSON
+                        response_format={"type": "json_object"}
+                    ),
+                    timeout=timeout
+                )
+                
+                return response.choices[0].message.content.strip()
+                
+            except (RateLimitError, APITimeoutError) as e:
+                last_exception = e
+                if attempt < self.MAX_RETRIES - 1:
+                    logger.warning(
+                        f"API call failed (attempt {attempt + 1}/{self.MAX_RETRIES}): {type(e).__name__}. "
+                        f"Retrying in {retry_delay:.1f}s..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, self.MAX_RETRY_DELAY)
+                else:
+                    logger.error(f"API call failed after {self.MAX_RETRIES} attempts: {e}")
+                    raise
+                    
+            except asyncio.TimeoutError as e:
+                last_exception = e
+                logger.warning(f"API call timeout (attempt {attempt + 1}/{self.MAX_RETRIES})")
+                if attempt == self.MAX_RETRIES - 1:
+                    raise
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, self.MAX_RETRY_DELAY)
+                
+            except Exception as e:
+                logger.error(f"Unexpected error in API call: {e}", exc_info=True)
+                raise
+        
+        if last_exception:
+            raise last_exception
+    
+    def _repair_json(self, json_text: str) -> dict:
+        """
+        Attempt to repair malformed JSON using json_repair library or fallback methods.
+        
+        Args:
+            json_text: The potentially malformed JSON string
+            
+        Returns:
+            Parsed JSON as dict
+            
+        Raises:
+            json.JSONDecodeError: If JSON cannot be repaired
+        """
+        # Try standard parsing first
+        try:
+            return json.loads(json_text)
+        except json.JSONDecodeError:
+            pass
+        
+        # Try json_repair library if available
+        if JSON_REPAIR_AVAILABLE:
+            try:
+                repaired = repair_json(json_text)
+                result = json.loads(repaired)
+                logger.info("Successfully repaired JSON using json_repair library")
+                return result
+            except Exception as e:
+                logger.warning(f"json_repair failed: {e}")
+        
+        # Fallback: Try to remove markdown code blocks
+        if "```json" in json_text or "```" in json_text:
+            try:
+                import re
+                json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', json_text)
+                if json_match:
+                    cleaned = json_match.group(1).strip()
+                    result = json.loads(cleaned)
+                    logger.info("Repaired JSON by removing markdown blocks")
+                    return result
+            except json.JSONDecodeError:
+                pass
+        
+        # If all fails, raise the original error
+        raise json.JSONDecodeError("Could not repair JSON", json_text, 0)
     
     async def check_paragraph(
         self,
@@ -148,7 +360,7 @@ class LLMGrammarChecker:
             categories_to_check = [c for c in enabled_categories if c in self.category_mapping]
             if not categories_to_check:
                 # If none match, fall back to all categories
-                print(f"⚠️ [LLMGrammarChecker] No matching categories, using all")
+                logger.warning("No matching categories found, using all categories")
                 categories_to_check = self.all_categories
         else:
             # If no categories specified, check all
@@ -191,6 +403,29 @@ class LLMGrammarChecker:
 - ONLY flag actual misspellings, NOT regional spelling variants
 - Proper nouns and official names are ALWAYS correct (Labour Party, Organisation, etc.)
 - Technical terms, brand names, and specialized vocabulary are correct
+- **NEVER flag names as spelling errors:**
+  * Personal names (first names, last names, full names) - ALWAYS correct
+  * Place names (cities, countries, regions, streets) - ALWAYS correct
+  * Company/organization names - ALWAYS correct
+  * Product/brand names - ALWAYS correct
+  * Character names in fiction/stories - ALWAYS correct
+  * Any capitalized words that could be names - assume they are correct
+- When in doubt if something is a name, DO NOT flag it as a spelling error
+
+**POSSESSIVE APOSTROPHE RULES (EXTREMELY IMPORTANT):**
+- Singular possessive: attack's mysterious nature (belonging to one attack) - CORRECT
+- Plural possessive: attacks' mysterious nature (belonging to multiple attacks) - CORRECT
+- Plural possessive for words ending in s: James' book OR James's book - BOTH CORRECT
+- **DO NOT remove apostrophes from valid possessives:**
+  * "the attacks' mysterious nature" is GRAMMATICALLY CORRECT (plural possessive)
+  * "the children's toys" is CORRECT (irregular plural possessive)
+  * "the boss's office" or "the boss' office" are BOTH CORRECT
+- Only flag possessive issues if:
+  * Apostrophe is missing where needed (the dogs bone → the dog's bone)
+  * Apostrophe is used for simple plurals (apple's and orange's → apples and oranges)
+  * Wrong possessive form is used (the dog's are barking → the dogs are barking)
+- **NEVER suggest removing apostrophes from valid possessive forms**
+- If a possessive form is grammatically valid, DO NOT flag it even if you could rewrite it differently
 
 **CRITICAL RULES:**
 1. Only report ACTUAL errors in the specified categories, NOT style preferences
@@ -233,88 +468,43 @@ IMPORTANT:
 - "corrected_text" should be nearly identical to "original_text" with only the specific error fixed
 - If you cannot find a genuine error, return: {{"issues": []}}
 
-REMEMBER: NO quotation marks in problem/fix fields, and British/American spellings are BOTH valid!"""
+REMEMBER: 
+- NO quotation marks in problem/fix fields
+- British/American spellings are BOTH valid
+- NEVER flag names (people, places, companies, products) as spelling errors
+- NEVER remove apostrophes from valid possessive forms (attacks' nature is CORRECT)!"""
             
-            # Estimate tokens
+            # Estimate tokens and check context window
             prompt_tokens = self.count_tokens(prompt)
             max_response_tokens = min(1000, max(300, len(paragraph_text) // 2))
             
-            print(f"[LLMGrammarChecker] Checking paragraph {paragraph_number} ({len(paragraph_text)} chars)")
+            # Check token limit before making API call
+            if not self._check_token_limit(prompt_tokens, max_response_tokens):
+                logger.error(
+                    f"Skipping paragraph {paragraph_number}: token limit would be exceeded"
+                )
+                return []
             
-            # Call LLM
-            response = await asyncio.wait_for(
-                self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are an expert grammar checker. Only flag genuine errors. Preserve writer's voice and style. DO NOT flag proper nouns, official names, or British/American spelling variants. Be conservative. Return ONLY valid JSON with properly escaped quotes."
-                        },
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
-                    ],
-                    max_tokens=max_response_tokens,
-                    temperature=0.0,  # Most deterministic for proper JSON
-                    response_format={"type": "json_object"}
-                ),
+            logger.debug(
+                f"Checking paragraph {paragraph_number} ({len(paragraph_text)} chars, "
+                f"{prompt_tokens} prompt tokens, {max_response_tokens} max response tokens)"
+            )
+            
+            # Call LLM with retry logic
+            response_text = await self._call_llm_with_retry(
+                prompt=prompt,
+                max_response_tokens=max_response_tokens,
                 timeout=30.0
             )
             
-            # Parse response
-            response_text = response.choices[0].message.content.strip()
-            
             try:
-                result = json.loads(response_text)
+                result = self._repair_json(response_text)
             except json.JSONDecodeError as e:
-                print(f"⚠️ [LLMGrammarChecker] JSON parsing error: {e}")
-                print(f"   Response preview: {response_text[:300]}...")
-                
-                # Try multiple JSON repair strategies
-                repaired = False
-                
-                # Strategy 1: Remove markdown code blocks
-                if "```json" in response_text:
-                    try:
-                        import re
-                        json_match = re.search(r'```json\s*([\s\S]*?)\s*```', response_text)
-                        if json_match:
-                            response_text = json_match.group(1).strip()
-                            result = json.loads(response_text)
-                            print(f"✅ [LLMGrammarChecker] Fixed JSON by removing markdown blocks")
-                            repaired = True
-                    except json.JSONDecodeError:
-                        pass
-                
-                # Strategy 2: Try to fix unescaped quotes in problem/fix fields
-                if not repaired:
-                    try:
-                        import re
-                        # Replace unescaped quotes in "problem" and "fix" fields
-                        # Pattern: "problem": "text with "quotes" in it"
-                        def fix_quotes(match):
-                            field = match.group(1)
-                            content = match.group(2)
-                            # Remove or replace internal quotes
-                            fixed_content = content.replace('"', '')
-                            return f'"{field}": "{fixed_content}"'
-                        
-                        fixed_text = re.sub(
-                            r'"(problem|fix)"\s*:\s*"([^"]*?"[^"]*?)"',
-                            fix_quotes,
-                            response_text
-                        )
-                        result = json.loads(fixed_text)
-                        print(f"✅ [LLMGrammarChecker] Fixed JSON by removing internal quotes")
-                        repaired = True
-                    except (json.JSONDecodeError, Exception):
-                        pass
-                
-                # Strategy 3: Last resort - skip this paragraph
-                if not repaired:
-                    print(f"❌ [LLMGrammarChecker] Could not fix JSON, skipping paragraph")
-                    return []
+                logger.error(
+                    f"JSON parsing error in paragraph {paragraph_number}: {e}. "
+                    f"Response preview: {response_text[:200]}..."
+                )
+                return []
             
             if "issues" not in result or not isinstance(result["issues"], list):
                 return []
@@ -353,7 +543,7 @@ REMEMBER: NO quotation marks in problem/fix fields, and British/American spellin
                 )
                 
                 if is_variant_issue:
-                    print(f"   ⚠️ Filtered out British/American variant issue: {issue_data['problem'][:60]}...")
+                    logger.debug(f"Filtered out British/American variant issue: {issue_data['problem'][:60]}...")
                     continue
                 
                 # CRITICAL: Validate that the issue makes sense
@@ -365,18 +555,18 @@ REMEMBER: NO quotation marks in problem/fix fields, and British/American spellin
                 paragraph_normalized = re.sub(r'\s+', ' ', paragraph_text.strip())
                 original_normalized = re.sub(r'\s+', ' ', original_text_clean)
                 
-                # Check for exact match or substantial overlap (at least 70% of words match)
+                # Check for exact match or use fuzzy matching with sequence similarity
                 if original_normalized not in paragraph_normalized:
-                    # Try fuzzy matching - check if most words are present
-                    original_words = set(original_normalized.lower().split())
-                    paragraph_words = set(paragraph_normalized.lower().split())
+                    # Use fuzzy string matching for better hallucination detection
+                    fuzzy_ratio = self._fuzzy_match_ratio(original_normalized, paragraph_normalized)
                     
-                    if len(original_words) > 0:
-                        overlap = len(original_words & paragraph_words) / len(original_words)
-                        if overlap < 0.7:  # Less than 70% word overlap
-                            print(f"   ⚠️ Filtered out hallucinated issue: original_text not found in paragraph")
-                            print(f"      Claimed: '{original_text_clean[:60]}...'")
-                            continue
+                    # If similarity is too low, this is likely a hallucination
+                    if fuzzy_ratio < 0.6:  # Less than 60% similarity
+                        logger.debug(
+                            f"Filtered out hallucinated issue (similarity: {fuzzy_ratio:.2f}): "
+                            f"'{original_text_clean[:60]}...'"
+                        )
+                        continue
                 
                 # Check if corrected_text is substantially different from original
                 corrected_text_clean = issue_data["corrected_text"].strip()
@@ -384,7 +574,7 @@ REMEMBER: NO quotation marks in problem/fix fields, and British/American spellin
                     # More lenient length check - allow up to 3x difference for legitimate corrections
                     length_ratio = len(corrected_text_clean) / len(original_text_clean)
                     if length_ratio < 0.3 or length_ratio > 3.0:
-                        print(f"   ⚠️ Filtered out suspicious issue: correction length mismatch (ratio: {length_ratio:.2f})")
+                        logger.debug(f"Filtered out suspicious issue: correction length mismatch (ratio: {length_ratio:.2f})")
                         continue
                 
                 issue = GrammarIssue(
@@ -402,14 +592,14 @@ REMEMBER: NO quotation marks in problem/fix fields, and British/American spellin
                 if issue.corrected_sentence.strip() != issue.original_text.strip():
                     grammar_issues.append(issue)
             
-            print(f"[LLMGrammarChecker] Found {len(grammar_issues)} issues in paragraph {paragraph_number}")
+            logger.info(f"Found {len(grammar_issues)} issues in paragraph {paragraph_number}")
             return grammar_issues
             
         except asyncio.TimeoutError:
-            print(f"⚠️ [LLMGrammarChecker] Timeout checking paragraph {paragraph_number}")
+            logger.warning(f"Timeout checking paragraph {paragraph_number}")
             return []
         except Exception as e:
-            print(f"⚠️ [LLMGrammarChecker] Error checking paragraph {paragraph_number}: {e}")
+            logger.error(f"Error checking paragraph {paragraph_number}: {e}", exc_info=True)
             return []
     
     async def check_document(
@@ -439,14 +629,14 @@ REMEMBER: NO quotation marks in problem/fix fields, and British/American spellin
                 "error": "LLM not enabled or not available"
             }
         
-        print(f"[LLMGrammarChecker] 🤖 Starting full LLM-based grammar check")
+        logger.info("Starting full LLM-based grammar check")
         
         # Show which categories are being checked
         if enabled_categories:
             valid_cats = [c for c in enabled_categories if c in self.category_mapping]
-            print(f"[LLMGrammarChecker] Checking categories: {valid_cats}")
+            logger.info(f"Checking categories: {valid_cats}")
         else:
-            print(f"[LLMGrammarChecker] Checking ALL categories")
+            logger.info("Checking ALL categories")
         
         all_issues = []
         total_lines = len(document_data.lines)
@@ -463,8 +653,9 @@ REMEMBER: NO quotation marks in problem/fix fields, and British/American spellin
                 current_paragraph.append(line.content)
             else:
                 if current_paragraph:
+                    # Preserve line breaks by using '\n'.join() instead of ' '.join()
                     paragraphs.append({
-                        "text": " ".join(current_paragraph),
+                        "text": "\n".join(current_paragraph),
                         "start_line": current_start_line,
                         "lines": current_paragraph
                     })
@@ -472,13 +663,14 @@ REMEMBER: NO quotation marks in problem/fix fields, and British/American spellin
         
         # Add last paragraph if exists
         if current_paragraph:
+            # Preserve line breaks by using '\n'.join() instead of ' '.join()
             paragraphs.append({
-                "text": " ".join(current_paragraph),
+                "text": "\n".join(current_paragraph),
                 "start_line": current_start_line,
                 "lines": current_paragraph
             })
         
-        print(f"[LLMGrammarChecker] Processing {len(paragraphs)} paragraphs")
+        logger.info(f"Processing {len(paragraphs)} paragraphs")
         
         # Process each paragraph
         for idx, para in enumerate(paragraphs):
@@ -504,10 +696,14 @@ REMEMBER: NO quotation marks in problem/fix fields, and British/American spellin
             
             all_issues.extend(issues)
             
-            # Update progress
+            # Update progress (supports both sync and async callbacks)
             if progress_callback:
-                progress = int(((idx + 1) / len(paragraphs)) * 100)
-                await progress_callback(idx + 1, len(paragraphs), len(all_issues))
+                await self._call_with_progress(
+                    progress_callback,
+                    idx + 1,
+                    len(paragraphs),
+                    len(all_issues)
+                )
         
         metadata = {
             "llm_enabled": True,
@@ -517,7 +713,7 @@ REMEMBER: NO quotation marks in problem/fix fields, and British/American spellin
             "model": self.model
         }
         
-        print(f"[LLMGrammarChecker] ✅ Complete - Found {len(all_issues)} issues")
+        logger.info(f"Complete - Found {len(all_issues)} issues across {len(paragraphs)} paragraphs")
         
         return all_issues, metadata
     
