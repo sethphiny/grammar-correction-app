@@ -3,8 +3,8 @@ FROM node:20-alpine
 # Set working directory
 WORKDIR /app
 
-# Install wget for health checks
-RUN apk add --no-cache wget
+# Install wget for health checks and enable corepack (pnpm)
+RUN apk add --no-cache wget && corepack enable && corepack prepare pnpm@9.0.0 --activate
 
 # Accept build-time API base URL for CRA
 ARG REACT_APP_API_URL
@@ -12,20 +12,33 @@ ENV REACT_APP_API_URL=${REACT_APP_API_URL}
 
 # Copy package manager files
 COPY frontend/package.json ./
-COPY frontend/package-lock.json* ./
+COPY frontend/pnpm-lock.yaml* ./
 
-# Install dependencies with npm
-RUN npm install --legacy-peer-deps && \
-    npm install ajv@^8.0.0 --save-dev --legacy-peer-deps
+# Install dependencies with pnpm (faster, deterministic)
+# Use npm as fallback if pnpm-lock.yaml doesn't exist
+RUN if [ -f pnpm-lock.yaml ]; then \
+        pnpm install --frozen-lockfile; \
+    else \
+        npm install --legacy-peer-deps && \
+        npm install ajv@^8.0.0 --save-dev --legacy-peer-deps; \
+    fi
 
 # Copy source code
 COPY frontend/ .
 
 # Build the application (CRA reads REACT_APP_* at build time)
-RUN npm run build
+RUN if [ -f pnpm-lock.yaml ]; then \
+        pnpm run build; \
+    else \
+        npm run build; \
+    fi
 
 # Install serve to run the production build
-RUN npm install -g serve
+RUN if [ -f pnpm-lock.yaml ]; then \
+        pnpm add -g serve; \
+    else \
+        npm install -g serve; \
+    fi
 
 # Expose port
 EXPOSE 3000
