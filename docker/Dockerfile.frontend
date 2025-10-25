@@ -34,11 +34,8 @@ RUN if [ -f pnpm-lock.yaml ]; then \
     fi
 
 # Install serve to run the production build
-RUN if [ -f pnpm-lock.yaml ]; then \
-        pnpm add -g serve; \
-    else \
-        npm install -g serve; \
-    fi
+# Use npm for global installation as pnpm requires additional setup for global packages
+RUN npm install -g serve
 
 # Expose port
 EXPOSE 3000

@@ -128,7 +128,7 @@ tmp/
 temp/
 
 # Docker
-.dockerignore
+# (no files ignored)
 
 # Uploaded files (temporary)
 uploads/
