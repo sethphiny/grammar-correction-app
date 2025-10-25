@@ -20,12 +20,30 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.backend
+    env_file:
+      - .env
     environment:
+      # Override container-specific values
       - LANGUAGETOOL_URL=http://languagetool:8010
-      - MAX_FILE_SIZE=10485760
-      - PROCESSING_TIMEOUT=300
-      - CORS_ORIGINS=http://localhost,https://yourdomain.com
+      # All other variables loaded from .env file
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-10485760}
+      - PROCESSING_TIMEOUT=${PROCESSING_TIMEOUT:-300}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost,https://yourdomain.com}
       - PYTHONUNBUFFERED=1
+      - DEBUG=${DEBUG:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-WARNING}
+      - SECRET_KEY=${SECRET_KEY}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - DATABASE_URL=${DATABASE_URL:-}
+      # LLM Configuration
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - LLM_ENHANCEMENT_ENABLED=${LLM_ENHANCEMENT_ENABLED:-false}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LLM_REQUEST_TIMEOUT=${LLM_REQUEST_TIMEOUT:-30}
+      - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-3}
+      - LLM_RETRY_DELAY=${LLM_RETRY_DELAY:-1}
+      - LLM_ENHANCE_ALL=${LLM_ENHANCE_ALL:-false}
     volumes:
       - backend_uploads:/app/uploads
       - backend_temp:/app/temp_files
