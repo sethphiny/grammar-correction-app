@@ -1,0 +1,29 @@
+# Node modules (will be installed during build)
+node_modules
+npm-debug.log
+
+# Build output (will be generated during build)
+build
+dist
+
+# Environment files
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage
+.nyc_output
+
+# Cache
+.cache
+
