@@ -30,8 +30,8 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: docker/Dockerfile.frontend
+      context: ./frontend
+      dockerfile: ../docker/Dockerfile.frontend
       args:
         # Frontend runs in browser, so it needs localhost (not backend hostname)
         REACT_APP_API_URL: http://localhost:8000

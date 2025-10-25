@@ -11,8 +11,8 @@ ARG REACT_APP_API_URL
 ENV REACT_APP_API_URL=${REACT_APP_API_URL}
 
 # Copy package manager files
-COPY frontend/package.json ./
-COPY frontend/pnpm-lock.yaml* ./
+COPY package.json ./
+COPY pnpm-lock.yaml* ./
 
 # Install dependencies with pnpm (faster, deterministic)
 # Use npm as fallback if pnpm-lock.yaml doesn't exist
@@ -24,11 +24,11 @@ RUN if [ -f pnpm-lock.yaml ]; then \
     fi
 
 # Copy source code (explicit copy to ensure all files are included on all platforms)
-COPY frontend/public ./public
-COPY frontend/src ./src
-COPY frontend/tsconfig.json ./tsconfig.json
-COPY frontend/tailwind.config.js ./tailwind.config.js
-COPY frontend/postcss.config.js ./postcss.config.js
+COPY public ./public
+COPY src ./src
+COPY tsconfig.json ./tsconfig.json
+COPY tailwind.config.js ./tailwind.config.js
+COPY postcss.config.js ./postcss.config.js
 
 # Verify public folder exists (debugging)
 RUN ls -la /app/public || echo "Public folder not found!"

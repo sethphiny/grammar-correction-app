@@ -44,8 +44,8 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: docker/Dockerfile.frontend
+      context: ./frontend
+      dockerfile: ../docker/Dockerfile.frontend
       args:
         # Frontend will call API via nginx at /api
         REACT_APP_API_URL: http://localhost/api
