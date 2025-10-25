@@ -23,8 +23,15 @@ RUN if [ -f pnpm-lock.yaml ]; then \
         npm install ajv@^8.0.0 --save-dev --legacy-peer-deps; \
     fi
 
-# Copy source code
-COPY frontend/ .
+# Copy source code (explicit copy to ensure all files are included on all platforms)
+COPY frontend/public ./public
+COPY frontend/src ./src
+COPY frontend/tsconfig.json ./tsconfig.json
+COPY frontend/tailwind.config.js ./tailwind.config.js
+COPY frontend/postcss.config.js ./postcss.config.js
+
+# Verify public folder exists (debugging)
+RUN ls -la /app/public || echo "Public folder not found!"
 
 # Build the application (CRA reads REACT_APP_* at build time)
 RUN if [ -f pnpm-lock.yaml ]; then \
